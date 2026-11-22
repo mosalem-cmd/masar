@@ -184,7 +184,7 @@ async function signup(phone, name, pw) {
   const raw = crypto.getRandomValues(new Uint8Array(32)), salt = crypto.getRandomValues(new Uint8Array(16)), saltR = crypto.getRandomValues(new Uint8Array(16));
   const code = genCode();
   const w1 = await aesEnc(await kdf(pw, salt), raw), w2 = await aesEnc(await kdf(normCode(code), saltR), raw);
-  const owner = !Object.values(acc).some(a => a.owner);
+  const owner = false;
   const entry = { name, owner, salt: b64(salt), saltR: b64(saltR), w1, w2, created: Date.now() };
   const dek = await importDek(raw), state = defaultState(name, owner);
   const blob = await aesEnc(dek, enc.encode(JSON.stringify(state)));
@@ -686,7 +686,7 @@ VIEWS.more = () => {
       ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('exportIcs', 'bell', 'التذكيرات', 'rose')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}${T('exportBackup', 'download', 'نسخة احتياطية', 'slate')}
     </div></div>
     <button class="btn bad block" style="margin-top:8px" data-a="logout">${ic('logout')} تسجيل الخروج</button>
-    <p class="faint" style="text-align:center;font-size:12px;margin-top:18px">${esc(S.settings.appName)} · النسخة 1</p>`
+    <p class="faint" style="text-align:center;font-size:12px;margin-top:18px" data-a="verTap">${esc(S.settings.appName)} · النسخة 1</p>`
   };
 };
 VIEWS.library = () => {
@@ -911,6 +911,7 @@ const A = {
   wipe: async () => { if (!(await ask('سيُحذف حسابك وكل بياناته من هذا الجهاز نهائياً.', 'حذف نهائي', 'احذف'))) return; const acc = accounts(); delete acc[ACC]; setAccounts(acc); localStorage.removeItem('masar.d.' + ACC); const id = ACC; S = null; await idbDo('kv', 'readwrite', s => s.delete('session')); const all = await idbDo('files', 'readonly', s => s.getAll()); for (const f of all || []) if (f.acc === id) await idbDo('files', 'readwrite', s => s.delete(f.id)); DEK = null; ACC = null; showAuth(Object.keys(accounts()).length ? 'login' : 'signup'); },
   enableSync: () => sheet('تفعيل المزامنة', `<form data-f="saveEnableSync"><p class="muted" style="margin-top:0">تُرفع بياناتك مشفّرة بكلمة سرك، فتدخل من أي هاتف وتجدها كما هي. لا يقرؤها أحد غيرك.</p><label class="field"><span>رقم هاتفك</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" required></label><label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" required></label><label class="field"><span>رمز الاسترجاع (اختياري، ليعمل «نسيت كلمة السر» من هاتف آخر)</span><input class="input ltr" style="display:block" name="code" placeholder="XXXX-XXXX-XXXX-XXXX"></label><div class="err" id="esErr"></div><button class="btn pri block">تفعيل</button></form>`),
   syncNowBtn: () => syncNow({ pull: true }),
+  verTap: () => { R.taps = (R.taps || 0) + 1; clearTimeout(R.tapT); R.tapT = setTimeout(() => R.taps = 0, 2500); if (R.taps >= 7) { R.taps = 0; const on = !quitOn(); S.profile.owner = on; S.profile.quit = on; save(); render(); toast(on ? 'ظهر قسم عاداتي' : 'أُخفي قسم عاداتي', 'ok'); } },
   authMode: d => showAuth(d.m)
 };
 function findLesson(id) { return Object.values(LESSONS).flat().find(l => l.id === id); }
