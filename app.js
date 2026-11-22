@@ -54,6 +54,7 @@ const ICONS = {
   wave: '<path d="M2.5 12c2.5 0 2.5-4 5-4s2.5 8 5 8 2.5-8 5-8 2.5 4 4 4"/>',
   shield: '<path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/>',
   timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/>', file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="3"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   play: '<rect x="3" y="5" width="18" height="14" rx="4"/><path d="m10.5 9.5 4 2.5-4 2.5z"/>', trash: '<path d="M4.5 7h15M10 11v6M14 11v6M6.5 7l1 12.5a2 2 0 0 0 2 1.5h5a2 2 0 0 0 2-1.5l1-12.5M9.5 7V4.5h5V7"/>',
   edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>', lock: '<rect x="5" y="10.5" width="14" height="10" rx="3"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>',
@@ -273,7 +274,7 @@ function defaultState(name, owner) {
   const t = ymd(new Date(now().getTime() - 3 * 36e5));
   const ALL = [0, 1, 2, 3, 4, 5, 6], P = [0, 10, 20, 30, 40, 50];
   const r = (name, start, end, cat, w, al, x = {}) => ({ id: uid(), name, start, end, days: ALL.slice(), cat, w, al, ...x });
-  const subj = (id, name, sym, color) => ({ id, name, sym, color, lessons: id, goals: [], refs: [], done: {}, review: {} });
+  const subj = (id, name, sym, color) => ({ id, name, sym, color, lessons: id, goals: [], plan: [], refs: [], done: {}, review: {} });
   return {
     v: 1, profile: { name, owner, quit: true, quitSet: 1 },
     settings: { maxAuto: 120, reviewTime: '21:30', dayView: 'table', theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
@@ -296,6 +297,23 @@ function migrate() {
   S.library ??= []; S.exams ??= []; S.todos ??= []; S.targets ??= []; S.plan ??= {}; S.reviews ??= {}; S.top3 ??= {}; S.settings.maxAuto ??= 120; S.settings.reviewTime ??= '21:30'; S.settings.dayView ??= 'table'; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
   if (S.profile.quitSet === undefined) { S.profile.quit = true; S.profile.quitSet = 1; }
+  S.flags ??= {};
+  S.subjects.forEach(s => { s.cur ??= {}; s.written ??= []; if (s.uni === undefined) s.uni = !['math', 'physics', 'english', 'french'].includes(s.id); s.plan ??= []; if (s.goals?.length) { s.plan.push({ id: uid(), t: 'أهداف سابقة', due: '', steps: s.goals.map(g => ({ id: g.id, t: g.t, mins: 60, done: !!g.done })) }); s.goals = []; } });
+  if (!S.flags.plan1) {
+    S.flags.plan1 = 1;
+    if (!S.subjects.some(x => x.id === 'french')) S.subjects.push({ id: 'french', name: 'الفرنسية', sym: 'Fr', color: 'rose', lessons: null, goals: [], plan: [], refs: [], done: {}, review: {} });
+    const ph = S.subjects.find(x => x.id === 'physics'); if (ph) ph.paused = true;
+    for (const s of S.subjects) { const seed = PLAN_SEED[s.id]; if (seed && !s.plan.some(g => g.seed)) seed.forEach(([t, mo, steps]) => s.plan.push({ id: uid(), t, seed: 1, due: mo ? monthEnd(mo) : '', steps: steps.map(x => ({ id: uid(), t: x, mins: 45, done: false })) })); }
+    if (!S.routine.some(r => r.subject === 'french')) S.routine.push({ id: uid(), name: 'الفرنسية', start: '11:30', end: '12:30', days: [6, 0, 2, 4], cat: 'study', w: 3, al: [-5], subject: 'french' });
+    delete S.plan[logicalToday()];
+  }
+  if (!S.flags.plan2) {
+    S.flags.plan2 = 1;
+    for (const s of S.subjects) {
+      s.plan.forEach(g => { if (g.seed && !g.res) g.res = PLAN_RES[g.t] || []; });
+      const rs = REF_SEED[s.id]; if (rs && !s.refs.some(r => r.seed)) rs.forEach(r => s.refs.push({ id: uid(), type: 'link', title: r.t, url: r.u, video: r.k === 'v', seed: 1 }));
+    }
+  }
   if (S.settings.appName === 'مسار') S.settings.appName = 'MASAR';
 }
 let OWNER_ID = null; const OWNER_P = phoneId('38449637').then(x => OWNER_ID = x).catch(() => {});
@@ -306,6 +324,8 @@ const habitsOpen = () => (R.habitUntil || 0) > Date.now();
 // ================= منطق اليوم =================
 function sessionKey(date) { return WORKOUT_DAYS[parseYmd(date).getDay()] || null; }
 function workoutName(date) { const k = sessionKey(date); return k ? 'تمرين: ' + WORKOUTS[k].n : 'مشي خفيف 30 دقيقة'; }
+function syncStep(td) { if (!td.step) return; for (const s of S.subjects) for (const g of s.plan || []) { const x = g.steps.find(y => y.id === td.step); if (x) x.done = true; } }
+function monthEnd(n) { const d = parseYmd(logicalToday()); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 0)); }
 function sortKey(start) { const m = toMin(start), b = (S.settings.dayStart || 0) * 60; return m < b ? m + 1440 : m; }
 function busyOn(date, extra = []) {
   const wd = parseYmd(date).getDay();
@@ -422,8 +442,8 @@ function checkDayComplete(date) {
 // ================= نسب المواد والمشاريع =================
 function subjectPct(s) {
   const L = LESSONS[s.lessons] || [];
-  const tot = L.length + s.goals.reduce((a, g) => a + g.w, 0); if (!tot) return 0;
-  const d = L.filter(l => s.done[l.id]).length + s.goals.filter(g => g.done).reduce((a, g) => a + g.w, 0);
+  const st = (s.plan || []).flatMap(g => g.steps), tot = L.length + st.length; if (!tot) return 0;
+  const d = L.filter(l => s.done[l.id]).length + st.filter(x => x.done).length;
   return Math.round(d / tot * 100);
 }
 function weekStart(date) { return addDays(date, -((parseYmd(date).getDay() + 1) % 7)); }
@@ -576,32 +596,87 @@ function quitInfo() {
 }
 
 // ---------- الدروس ----------
+function planLine(s, L, n) { const st = (s.plan || []).flatMap(g => g.steps), parts = []; if (L.length) parts.push(`${n} من ${L.length} دروس`); if (s.plan?.length) parts.push(`${s.plan.length} أهداف كبرى · ${st.filter(x => x.done).length} من ${st.length} خطوة`); return parts.join(' · ') || 'أضف هدفاً كبيراً'; }
+function nextStep(s) { for (const g of s.plan || []) { const st = g.steps.find(x => !x.done); if (st) return { g, st }; } return null; }
+function nextStepLine(s) { if (s.paused) return ''; const n = nextStep(s); return n ? `<div class="muted" style="font-size:13px;margin-top:8px;text-align:right">التالي: <b>${esc(n.st.t)}</b></div>` : ''; }
+const currOf = s => CURR[s.id] || [];
+function lessonState(s, i) { const L = currOf(s); if (s.cur?.[L[i].id]?.pass) return 'done'; return i === 0 || s.cur?.[L[i - 1].id]?.pass ? 'open' : 'locked'; }
+const lessonUrl = (s, l) => s.cur?.[l.id]?.url || YT(l.ch + ' ' + l.q);
+function nextLesson(s) { const L = currOf(s); const i = L.findIndex((_, k) => lessonState(s, k) === 'open'); return i < 0 ? null : { l: L[i], i }; }
+const passedN = s => currOf(s).filter(l => s.cur?.[l.id]?.pass).length;
+function currHtml(s) {
+  const L = currOf(s), n = passedN(s), p = Math.round(n / L.length * 100), nx = nextLesson(s); let last = '';
+  const rows = L.map((l, i) => { const st = lessonState(s, i), e = s.cur?.[l.id] || {}; const head = l.g !== last ? `<div class="grp">${esc(l.g)}</div>` : ''; last = l.g;
+    return head + `<button class="list-row press lrow ${st}" style="width:100%;text-align:right" data-a="openCl" data-s="${s.id}" data-id="${l.id}"><span class="sym sm c-${st === 'done' ? 'teal' : st === 'open' ? s.color : 'slate'}" style="font-family:inherit">${st === 'done' ? ic('check') : st === 'locked' ? ic('lock') : i + 1}</span><span class="grow"><b dir="auto">${i + 1}. ${esc(l.t)}</b><br><small class="muted" dir="auto">${esc(l.ch)}</small></span>${st === 'done' ? `<span class="tag ok">${e.score}/5</span>` : st === 'open' ? '<span class="tag pri">التالي</span>' : '<span class="tag">مقفل</span>'}</button>`; }).join('');
+  return `<div class="big"><div class="row">${symHtml(s.sym, s.color)}<div class="grow"><h4>${esc(s.name)}</h4><p>${n} من ${L.length} دروس</p></div><span class="pct">${p}%</span></div>${bar(p)}</div>
+  ${nx ? `<button class="card row press" style="width:100%;text-align:right" data-a="openCl" data-s="${s.id}" data-id="${nx.l.id}"><span class="sym sm c-${s.color}">${ic('play')}</span><div class="grow"><small class="muted">درسك التالي</small><div dir="auto"><b>${nx.i + 1}. ${esc(nx.l.t)}</b></div></div>${ic('chev')}</button>` : '<div class="card empty">أنهيت كل دروس هذه المادة، أحسنت!</div>'}
+  <div class="card">${rows}</div>
+  <button class="add-row press" data-a="openSubject" data-id="${s.id}">${ic('chart')} الخطة والمراجع والمزيد</button>`;
+}
+function uniHtml() {
+  const U = S.subjects.filter(s => s.uni);
+  const card = s => { const links = s.refs.filter(r => r.type === 'link').length, files = s.refs.filter(r => r.type !== 'link').length;
+    return `<button class="ucard press" data-a="openSubject" data-id="${s.id}">${symHtml(s.sym, s.color)}<b dir="auto">${esc(s.name)}</b><small class="muted">${links} روابط · ${files} ملفات · ${s.written.length} دروس</small></button>`; };
+  return `${U.length ? `<div class="ugrid">${U.map(card).join('')}</div>` : '<div class="card empty">أضف موادك الجامعية، ولكل مادة بطاقة فيها روابطك وكتبك PDF ودروسك المكتوبة.</div>'}
+  <button class="add-row press" data-a="addSubject">${ic('plus')} أضف مادة جامعية</button>`;
+}
 VIEWS.lessons = () => {
-  const today = logicalToday();
-  const due = []; S.subjects.forEach(s => Object.entries(s.review || {}).forEach(([lid, r]) => { if (r.next <= today) due.push([s, lid]); }));
-  const last = S.lastLesson && S.subjects.find(s => s.id === S.lastLesson.s);
-  const lastL = last && (LESSONS[last.lessons] || []).find(l => l.id === S.lastLesson.l);
-  return {
-    title: 'الدروس', plus: 'addSubject',
-    html: `${lastL ? `<button class="card row press" style="width:100%;text-align:right" data-a="openLesson" data-s="${last.id}" data-l="${lastL.id}"><span class="sym sm c-${last.color}">${ic('play')}</span><div class="grow"><small class="muted">تابع من حيث توقفت</small><div><b>${esc(lastL.title)}</b></div></div>${ic('chev')}</button>` : ''}
+  const today = logicalToday(), f = R.sub.lf || 'all';
+  const tabs = [['all', 'الكل'], ['math', 'الرياضيات'], ['english', 'الإنجليزية'], ['french', 'الفرنسية'], ['uni', 'المواد الجامعية']];
+  const fbar = `<div class="fbar">${tabs.map(([k, l]) => `<button class="pill press ${f === k ? 'on' : ''}" data-a="lessonFilter" data-v="${k}">${l}</button>`).join('')}</div>`;
+  let body = '';
+  if (f === 'uni') body = uniHtml();
+  else if (f !== 'all' && S.subjects.find(x => x.id === f) && currOf(S.subjects.find(x => x.id === f)).length) body = currHtml(S.subjects.find(x => x.id === f));
+  else {
+    const due = []; S.subjects.forEach(s => Object.entries(s.review || {}).forEach(([lid, r]) => { if (r.next <= today) due.push([s, lid]); }));
+    const last = S.lastLesson && S.subjects.find(s => s.id === S.lastLesson.s);
+    const lastL = last && (LESSONS[last.lessons] || []).find(l => l.id === S.lastLesson.l);
+    body = `${lastL ? `<button class="card row press" style="width:100%;text-align:right" data-a="openLesson" data-s="${last.id}" data-l="${lastL.id}"><span class="sym sm c-${last.color}">${ic('play')}</span><div class="grow"><small class="muted">تابع من حيث توقفت</small><div><b>${esc(lastL.title)}</b></div></div>${ic('chev')}</button>` : ''}
     ${due.length ? `<button class="card row press" style="width:100%;text-align:right" data-a="goReview"><span class="sym sm c-amber">${ic('timer')}</span><div class="grow"><b>مراجعة اليوم</b><div class="muted" style="font-size:13px">${due.length} ${due.length === 1 ? 'درس' : 'دروس'} حان وقت مراجعتها</div></div>${ic('chev')}</button>` : ''}
-    ${S.subjects.map(s => { const L = LESSONS[s.lessons] || [], p = subjectPct(s), n = L.filter(l => s.done[l.id]).length;
-      return `<button class="big press" data-a="openSubject" data-id="${s.id}"><div class="row">${symHtml(s.sym, s.color)}<div class="grow"><h4>${esc(s.name)}</h4><p>${L.length ? `${n} من ${L.length} دروس` : 'أضف أهدافاً ومراجع'}${s.goals.length ? ` · ${s.goals.filter(g => g.done).length} من ${s.goals.length} أهداف` : ''}</p></div><span class="pct">${p}%</span></div>${bar(p)}</button>`; }).join('')}
-    <button class="add-row press" data-a="addSubject">${ic('plus')} أضف مادة</button>`
-  };
+    ${S.subjects.filter(s => !s.uni).map(s => { const L = LESSONS[s.lessons] || [], p = subjectPct(s), n = L.filter(l => s.done[l.id]).length, hasC = currOf(s).length, nx = hasC && nextLesson(s);
+      return `<button class="big press ${s.paused ? 'paused' : ''}" data-a="${hasC ? 'lessonFilter' : 'openSubject'}" data-v="${s.id}" data-id="${s.id}"><div class="row">${symHtml(s.sym, s.color)}<div class="grow"><h4>${esc(s.name)}</h4><p>${s.paused ? 'مؤجّلة · ' : ''}${hasC ? `${passedN(s)} من ${currOf(s).length} دروس · ` : ''}${planLine(s, hasC ? [] : L, n)}</p></div><span class="pct">${p}%</span></div>${bar(p)}${nx ? `<div class="muted" style="font-size:13px;margin-top:8px;text-align:right" dir="auto">الدرس التالي: <b>${nx.i + 1}. ${esc(nx.l.t)}</b></div>` : s.paused ? '' : nextStepLine(s)}</button>`; }).join('')}
+    ${S.subjects.some(s => s.uni) ? `<button class="big press" data-a="lessonFilter" data-v="uni"><div class="row"><span class="sym c-slate">${ic('library')}</span><div class="grow"><h4>المواد الجامعية</h4><p>${S.subjects.filter(s => s.uni).length} مواد</p></div>${ic('chev')}</div></button>` : ''}`;
+  }
+  return { title: 'الدروس', plus: 'addSubject', html: fbar + body };
+};
+// ---------- درس من المنهج ----------
+function clCtx(v) { const s = S.subjects.find(x => x.id === v.s), L = s ? currOf(s) : [], i = L.findIndex(x => x.id === v.l); return { s, L, i, l: L[i] }; }
+VIEWS.cl = v => {
+  const { s, L, i, l } = clCtx(v); if (!l) return VIEWS.lessons();
+  const e = s.cur?.[l.id] || {}, st = lessonState(s, i), nx = L[i + 1] && lessonState(s, i + 1) === 'open' ? L[i + 1] : null;
+  const head = `<div class="big"><div class="row"><span class="sym c-${s.color}" style="font-family:inherit">${i + 1}</span><div class="grow"><small class="muted">${esc(s.name)} · ${esc(l.g)} · الدرس ${i + 1} من ${L.length}</small><h4 dir="auto" style="margin-top:2px">${esc(l.t)}</h4><p dir="auto">${esc(l.ch)}</p></div></div></div>`;
+  const note = e.note ? `<div class="card"><h3>ملاحظاتي</h3><div style="white-space:pre-wrap;line-height:1.8" dir="auto">${esc(e.note)}</div></div>` : '';
+  let body;
+  if (st === 'done') body = `<div class="card"><h3>مراجعة الدرس</h3><div class="row"><span class="tag ok">اجتزت الاختبار</span><b class="grow">${e.score} من 5</b><small class="muted">${e.d ? fmtShort(e.d) : ''}</small></div>
+    <div class="btns" style="margin-top:12px"><button class="btn pri" data-a="startQuiz" data-s="${s.id}" data-id="${l.id}">أعد الاختبار</button>${nx ? `<button class="btn" data-a="nextCl" data-s="${s.id}" data-id="${nx.id}">الدرس التالي</button>` : ''}</div>
+    <a class="btn block sm" style="margin-top:8px" href="${esc(lessonUrl(s, l))}" target="_blank" rel="noopener noreferrer">${ic('play')} مشاهدة الدرس مجدداً</a></div>${note}`;
+  else body = `<div class="card"><h3>1. شاهد الدرس</h3><a class="btn pri block" href="${esc(lessonUrl(s, l))}" target="_blank" rel="noopener noreferrer">${ic('play')} افتح الدرس في يوتيوب</a>
+    <div class="note">${e.url ? 'رابطك المباشر محفوظ.' : 'الرابط بحث في القناة عن عنوان الدرس. إن وجدت الفيديو الأنسب فألصق رابطه.'}</div><button class="btn sm block" data-a="editUrl" data-s="${s.id}" data-id="${l.id}">${ic('link')} ألصق رابطاً مباشراً</button></div>
+    <div class="card"><h3>2. اختبر نفسك</h3><p class="muted" style="margin-top:0">5 أسئلة. النجاح بـ 4 صحيحة يفتح الدرس التالي${e.tries ? ` · محاولاتك: ${e.tries}` : ''}.</p><button class="btn pri block" data-a="startQuiz" data-s="${s.id}" data-id="${l.id}">ابدأ الاختبار</button></div>${note}`;
+  return { title: 'الدرس ' + (i + 1), html: `${head}${body}<div style="height:84px"></div><button class="note-fab press" data-a="lessonNote" data-s="${s.id}" data-id="${l.id}">${ic('edit')} ملاحظاتي${e.note ? ' ●' : ''}</button>` };
+};
+VIEWS.cq = v => {
+  const { s, L, i, l } = clCtx(v); if (!l) return VIEWS.lessons();
+  if (!R.q || R.q.s !== s.id || R.q.l !== l.id) R.q = { s: s.id, l: l.id, qs: buildQuiz(l), ans: [], done: false, score: 0 };
+  const q = R.q, all = q.qs.every((_, k) => q.ans[k] != null), pass = q.done && q.score / q.qs.length >= .8, nx = L[i + 1];
+  const qs = q.qs.map((x, k) => `<div class="card qz"><div class="qn">السؤال ${k + 1} من ${q.qs.length}</div><div class="qt" dir="auto">${esc(x.q)}</div>${x.e ? `<div class="qe ltr">${esc(x.e)}</div>` : ''}<div class="opts">${x.o.map((o, j) => `<button class="opt press ${q.ans[k] === j && !q.done ? 'sel' : ''} ${q.done && j === x.a ? 'right' : ''} ${q.done && q.ans[k] === j && j !== x.a ? 'wrong' : ''}" dir="auto" data-a="qAns" data-i="${k}" data-j="${j}" ${q.done ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div></div>`).join('');
+  const res = q.done ? `<div class="card"><h3>${pass ? 'أحسنت، نجحت' : 'لم تجتز بعد'}</h3><div class="row"><b class="grow" style="font-size:22px">${q.score} من ${q.qs.length}</b><span class="tag ${pass ? 'ok' : 'warn'}">${pass ? (nx ? 'فُتح الدرس التالي' : 'أنهيت المادة') : 'يلزم 4 على الأقل'}</span></div>
+    <div class="btns" style="margin-top:12px">${pass ? `${nx ? `<button class="btn pri" data-a="nextCl" data-s="${s.id}" data-id="${nx.id}">الدرس التالي</button>` : ''}<button class="btn" data-a="back">المراجعة</button>` : `<button class="btn pri" data-a="qRetry">حاول مجدداً</button><button class="btn" data-a="back">عودة للدرس</button>`}</div></div>` : '';
+  return { title: 'اختبار: ' + l.t, html: `${res}${qs}${q.done ? '' : `<button class="btn pri block" style="margin-top:6px" data-a="qCheck" ${all ? '' : 'disabled'}>تحقق من إجاباتي</button>`}<div style="height:84px"></div><button class="note-fab press" data-a="lessonNote" data-s="${s.id}" data-id="${l.id}">${ic('edit')} ملاحظاتي</button>` };
 };
 VIEWS.subject = v => {
   const s = S.subjects.find(x => x.id === v.id); if (!s) return VIEWS.lessons();
-  const tab = R.sub[s.id] || 'lessons', L = LESSONS[s.lessons] || [], p = subjectPct(s), today = logicalToday();
+  const tab = R.sub[s.id] || 'plan', L = LESSONS[s.lessons] || [], p = subjectPct(s), today = logicalToday();
   let body = '';
   if (tab === 'lessons') body = L.length ? `<div class="card">${L.map((l, i) => { const d = s.done[l.id]; return `<button class="list-row press" style="width:100%;text-align:right" data-a="openLesson" data-s="${s.id}" data-l="${l.id}"><span class="sym sm c-${d ? 'teal' : s.color}" style="font-family:inherit">${d ? ic('check') : i + 1}</span><span class="grow"><b>${esc(l.title)}</b><br><small class="muted">${l.mins} دقيقة · ${l.ex.length} تمارين</small></span>${d ? `<span class="tag ok">${d.score}/${l.ex.length}</span>` : '<span class="tag">لم يبدأ</span>'}</button>`; }).join('')}</div>` : `<div class="card empty">لا توجد دروس مكتوبة لهذه المادة بعد. استعمل الأهداف والمراجع.</div>`;
+  if (tab === 'written') body = `<div class="card">${s.written.length ? s.written.map(w => `<button class="list-row press" style="width:100%;text-align:right;display:block" data-a="editWritten" data-s="${s.id}" data-id="${w.id}"><b dir="auto">${esc(w.t)}</b><div class="muted" dir="auto" style="font-size:13px;white-space:pre-wrap;max-height:3.4em;overflow:hidden">${esc(w.b)}</div></button>`).join('') : '<div class="empty">اكتب دروسك وملخصاتك هنا</div>'}</div><button class="add-row press" data-a="addWritten" data-s="${s.id}">${ic('plus')} درس مكتوب</button>`;
   if (tab === 'refs') body = refsHtml('s', s.id, s.refs);
-  if (tab === 'goals') body = goalsHtml('s', s.id, s.goals);
+  if (tab === 'plan') body = planHtml(s);
   if (tab === 'review') { const due = Object.entries(s.review || {}).sort((a, b) => a[1].next < b[1].next ? -1 : 1); body = `<div class="card">${due.length ? due.map(([lid, r]) => { const l = L.find(x => x.id === lid); return l ? `<button class="list-row press" style="width:100%;text-align:right" data-a="openLesson" data-s="${s.id}" data-l="${lid}" data-review="1"><span class="grow"><b>${esc(l.title)}</b><br><small class="muted">المراجعة ${r.next <= today ? 'اليوم' : 'في ' + fmtShort(r.next)}</small></span><span class="tag ${r.next <= today ? 'warn' : ''}">${r.next <= today ? 'حان وقتها' : 'لاحقاً'}</span></button>` : ''; }).join('') : '<div class="empty">أنهِ درساً لتظهر مراجعته هنا في أوقات متباعدة</div>'}</div>`; }
   return {
     title: s.name,
-    html: `<div class="big"><div class="row">${symHtml(s.sym, s.color)}<div class="grow"><h4>${esc(s.name)}</h4><p>التقدم الكلي</p></div><span class="pct">${p}%</span></div>${bar(p)}</div>
-    <div class="seg">${[['lessons', 'الدروس'], ['refs', 'المراجع'], ['goals', 'الأهداف'], ['review', 'المراجعة']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-a="subTab" data-k="${s.id}" data-v="${k}">${l}</button>`).join('')}</div>${body}
+    html: `<div class="big"><div class="row">${symHtml(s.sym, s.color)}<div class="grow"><h4>${esc(s.name)}</h4><p>${s.paused ? 'مؤجّلة حالياً' : 'التقدم الكلي'}</p></div><span class="pct">${p}%</span></div>${bar(p)}</div>
+    <div class="seg">${(s.uni ? [['plan', 'الخطة'], ['refs', 'الروابط والكتب'], ['written', 'دروس مكتوبة']] : [['plan', 'الخطة'], ['lessons', 'تمارين'], ['refs', 'المراجع'], ['review', 'المراجعة']]).map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" data-a="subTab" data-k="${s.id}" data-v="${k}">${l}</button>`).join('')}</div>${body}
     <button class="btn bad block sm" style="margin-top:20px" data-a="delSubject" data-id="${s.id}">${ic('trash')} حذف المادة</button>`
   };
 };
@@ -631,6 +706,21 @@ VIEWS.review = () => {
 
 // ---------- الأهداف والمراجع (مشتركة) ----------
 function ownerOf(kind, id) { return kind === 's' ? S.subjects.find(x => x.id === id) : kind === 'p' ? S.projects.find(x => x.id === id) : { refs: S.library }; }
+function bigPct(g) { return g.steps.length ? Math.round(g.steps.filter(x => x.done).length / g.steps.length * 100) : 0; }
+function resHtml(g) { const r = g.res || []; if (!r.length) return '';
+  return `<details class="res"><summary>${ic('book')} مصادر هذا الهدف (${r.length})</summary>${r.map(x => `<a class="list-row press res-a" href="${esc(x.u)}" target="_blank" rel="noopener noreferrer"><span class="sym sm c-${x.k === 'v' ? 'rose' : x.k === 'b' ? 'teal' : 'cyan'}">${ic(x.k === 'v' ? 'play' : x.k === 'b' ? 'book' : 'link')}</span><span class="grow"><b>${esc(x.t)}</b><br><small class="muted">${x.k === 'v' ? 'فيديو' : x.k === 'b' ? 'كتاب مجاني' : 'موقع'}</small></span>${ic('chev')}</a>`).join('')}</details>`; }
+function planHtml(s) {
+  const today = logicalToday(), nx = nextStep(s);
+  const cards = (s.plan || []).map(g => { const p = bigPct(g), left = g.due ? daysBetween(today, g.due) : null, late = g.due && left < 0 && p < 100;
+    return `<div class="card"><div class="row"><div class="grow"><b>${esc(g.t)}</b><div class="muted" style="font-size:13px">${g.due ? `حتى ${fmtShort(g.due)}${p >= 100 ? '' : late ? '' : ` · بقي ${left} يوماً`}` : 'بلا موعد'}${late ? ' <span class="tag warn">متأخر</span>' : ''}${p >= 100 ? ' <span class="tag ok">اكتمل</span>' : ''}</div></div><span class="pct">${p}%</span></div>${bar(p)}
+    ${resHtml(g)}
+    ${g.steps.map(x => `<div class="list-row"><button class="chk press ${x.done ? 'on' : ''}" data-a="toggleStep" data-s="${s.id}" data-b="${g.id}" data-id="${x.id}" aria-label="إنجاز">${ic('check')}</button><span class="grow" style="${x.done ? 'color:var(--tx3)' : ''}">${esc(x.t)}</span><small class="muted">${fmtDur(x.mins)}</small>${!x.done ? `<button class="icon-btn press" style="width:34px;height:34px" data-a="schedStep" data-s="${s.id}" data-b="${g.id}" data-id="${x.id}" aria-label="جدولة">${ic('cal')}</button>` : ''}<button class="icon-btn press" style="width:34px;height:34px" data-a="delStep" data-s="${s.id}" data-b="${g.id}" data-id="${x.id}" aria-label="حذف">${ic('trash')}</button></div>`).join('')}
+    <form data-f="addStep" data-s="${s.id}" data-b="${g.id}" class="row" style="margin-top:10px"><input class="input grow" name="t" placeholder="خطوة صغيرة جديدة" required><select class="input" name="m" style="width:84px">${[15, 30, 45, 60, 90].map(m => `<option value="${m}" ${m === 45 ? 'selected' : ''}>${fmtDur(m)}</option>`).join('')}</select><button class="btn pri" style="width:48px;padding:0">${ic('plus')}</button></form>
+    <div class="btns" style="margin-top:10px"><button class="btn sm" data-a="editBig" data-s="${s.id}" data-id="${g.id}">تعديل</button><button class="btn bad sm" data-a="delBig" data-s="${s.id}" data-id="${g.id}">حذف</button></div></div>`; }).join('');
+  return `${nx && !s.paused ? `<div class="card row"><span class="sym sm c-${s.color}">${ic('play')}</span><div class="grow"><small class="muted">خطوتك التالية · ${esc(nx.g.t)}</small><div><b>${esc(nx.st.t)}</b></div></div></div>` : ''}
+  ${cards || '<div class="card empty">لا أهداف كبرى بعد. أضف هدفاً لأشهر قادمة وقسّمه إلى خطوات صغيرة.</div>'}
+  <button class="add-row press" data-a="addBig" data-s="${s.id}">${ic('plus')} هدف كبير جديد</button>`;
+}
 function goalsHtml(kind, id, goals) {
   return `<div class="card">${goals.length ? goals.map(g => `<div class="list-row"><button class="chk press ${g.done ? 'on' : ''}" data-a="toggleGoal" data-k="${kind}" data-o="${id}" data-id="${g.id}" aria-label="إنجاز">${ic('check')}</button><span class="grow" style="${g.done ? 'text-decoration:line-through;color:var(--tx3)' : ''}">${esc(g.t)}</span><button class="tag press" data-a="goalWeight" data-k="${kind}" data-o="${id}" data-id="${g.id}">${W_LBL[g.w]}</button>${kind === 'p' && !g.done ? `<button class="icon-btn press" style="width:34px;height:34px" data-a="scheduleGoal" data-o="${id}" data-id="${g.id}" aria-label="جدولة">${ic('cal')}</button>` : ''}<button class="icon-btn press" style="width:34px;height:34px" data-a="delGoal" data-k="${kind}" data-o="${id}" data-id="${g.id}" aria-label="حذف">${ic('trash')}</button></div>`).join('') : '<div class="empty">لا أهداف بعد</div>'}
   <form data-f="addGoal" data-k="${kind}" data-o="${id}" class="row" style="margin-top:10px"><input class="input grow" name="t" placeholder="هدف جديد" required><select class="input" name="w" style="width:96px"><option value="1">صغير</option><option value="2" selected>متوسط</option><option value="3">كبير</option></select><button class="btn pri" style="width:48px;padding:0">${ic('plus')}</button></form></div>`;
@@ -928,7 +1018,7 @@ const A = {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
     if (e?.s === 'done') { setLog(date, d.id, null); render(); return; }
     if (!canConfirm(date, d.id)) { toast('لم يحن وقتها بعد', ''); return; }
-    setLog(date, d.id, { s: 'done', t: Date.now() }); const td = d.id.startsWith('a:t:') && S.todos.find(x => 't:' + x.id === d.id.split(':').slice(1, 3).join(':')); if (td && todoLeft(td) <= 0) { td.done = true; save(); confetti(); toast('أنهيت المهمة كاملة: ' + td.name, 'ok'); } else toast(pick(CHEERS), 'ok'); render(); checkDayComplete(date);
+    setLog(date, d.id, { s: 'done', t: Date.now() }); const td = d.id.startsWith('a:t:') && S.todos.find(x => 't:' + x.id === d.id.split(':').slice(1, 3).join(':')); if (td && todoLeft(td) <= 0) { td.done = true; syncStep(td); save(); confetti(); toast('أنهيت المهمة كاملة: ' + td.name, 'ok'); } else toast(pick(CHEERS), 'ok'); render(); checkDayComplete(date);
   },
   miss: d => {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
@@ -953,7 +1043,7 @@ const A = {
   postpone: d => { const t = logicalToday(), blk = (S.plan[t] || []).find(b => b.id === d.id); setLog(t, d.id, { s: 'miss', r: 'أجّلتها', ex: true, t: Date.now() }); replanToday(); const later = (S.plan[t] || []).some(b => b.ref === blk.ref && !S.log[t]?.[b.id]); closeSheet(); render(); toast(later ? 'نُقلت إلى وقت لاحق اليوم' : 'نُقلت إلى الأيام القادمة', 'ok'); },
   addTodo: () => sheet('مهمة مرنة', `<form data-f="saveTodo">${todoForm()}<button class="btn pri block" style="margin-top:12px">أضف وجدولها</button></form>`),
   editTodo: d => { const t = S.todos.find(x => x.id === d.id); sheet('مهمة مرنة', `<form data-f="saveTodo" data-id="${t.id}">${todoForm(t)}<div class="note">أنجزت منها ${fmtDur(todoDone(t))}.</div><div class="btns"><button type="button" class="btn ok" data-a="finishTodo" data-id="${t.id}">انتهت</button><button type="button" class="btn bad" data-a="delTodo" data-id="${t.id}">حذف</button><button class="btn pri">حفظ</button></div></form>`); },
-  finishTodo: d => { S.todos.find(x => x.id === d.id).done = true; closeSheet(); replanToday(); render(); toast(pick(CHEERS), 'ok'); },
+  finishTodo: d => { const td = S.todos.find(x => x.id === d.id); td.done = true; syncStep(td); closeSheet(); replanToday(); render(); toast(pick(CHEERS), 'ok'); },
   delTodo: d => { S.todos = S.todos.filter(x => x.id !== d.id); closeSheet(); replanToday(); render(); },
   addTarget: () => sheet('هدف أسبوعي', `<form data-f="saveTarget">${targetForm()}<button class="btn pri block" style="margin-top:12px">أضف</button></form>`),
   editTarget: d => { const t = S.targets.find(x => x.id === d.id); sheet('هدف أسبوعي', `<form data-f="saveTarget" data-id="${t.id}">${targetForm(t)}<div class="btns"><button type="button" class="btn bad" data-a="delTarget" data-id="${t.id}">حذف</button><button class="btn pri">حفظ</button></div></form>`); },
@@ -975,7 +1065,7 @@ const A = {
   addExam: () => sheet('اختبار جديد', `<form data-f="saveExam"><label class="field"><span>المادة</span><select class="input" name="subject">${S.subjects.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label><label class="field"><span>اسم الاختبار</span><input class="input" name="name" placeholder="الاختبار النصفي" required></label><label class="field"><span>التاريخ</span><input class="input" type="date" name="date" required min="${addDays(logicalToday(), 1)}"></label><div class="two"><label class="field"><span>أيام المراجعة قبله</span><input class="input" name="before" type="number" value="5" min="1" max="30"></label><label class="field"><span>دقائق يومياً</span><input class="input" name="mins" type="number" value="60" min="15" step="15"></label></div><div class="note">توزَّع المراجعة تلقائياً في أول وقت فارغ من كل يوم، وتتغير تلقائياً إن غيّرت جدولك.</div><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`),
   delExam: d => { S.exams = S.exams.filter(x => x.id !== d.id); save(); render(); },
   // الدروس
-  addSubject: () => sheet('مادة جديدة', `<form data-f="saveSubject"><label class="field"><span>اسم المادة</span><input class="input" name="name" required placeholder="الفرنسية"></label><label class="field"><span>الرمز (حتى 4 أحرف)</span><input class="input" name="sym" maxlength="4" placeholder="Fr"></label><div class="field"><span>اللون</span>${colorChips('violet')}</div><button class="btn pri block">إضافة</button></form>`),
+  addSubject: () => sheet('مادة جامعية جديدة', `<form data-f="saveSubject"><label class="field"><span>اسم المادة</span><input class="input" name="name" required placeholder="الفرنسية"></label><label class="field"><span>الرمز (حتى 4 أحرف)</span><input class="input" name="sym" maxlength="4" placeholder="Fr"></label><div class="field"><span>اللون</span>${colorChips('violet')}</div><button class="btn pri block">إضافة</button></form>`),
   delSubject: async d => { if (!(await ask('حذف المادة وأهدافها ومراجعها؟', 'حذف'))) return; S.subjects = S.subjects.filter(x => x.id !== d.id); S.routine.forEach(r => { if (r.subject === d.id) delete r.subject; }); save(); back(); },
   openSubject: d => go('subject', { id: d.id }),
   subTab: d => { R.sub[d.k] = d.v; render(); },
@@ -1005,6 +1095,32 @@ const A = {
   addCard: d => { const p = S.projects.find(x => x.id === d.p); const miss = Object.keys(CARD_T).filter(t => !p.cards.some(c => c.type === t) && (p.id === 'health' || !['daily', 'workout', 'meals', 'sleep'].includes(t)));
     sheet('أضف بطاقة', miss.map(t => `<button class="list-row press" style="width:100%;text-align:right" data-a="addCardType" data-p="${p.id}" data-t="${t}">${ic('plus')}<span class="grow">${CARD_T[t]}</span></button>`).join('')); },
   addCardType: d => { const p = S.projects.find(x => x.id === d.p); p.cards.push(card(d.t, 'mid', PCT_ABLE.includes(d.t))); if (d.t === 'daily') p.daily ||= []; save(); closeSheet(); render(); },
+  addBig: d => sheet('هدف كبير', `<form data-f="saveBig" data-s="${d.s}"><label class="field"><span>الهدف الكبير</span><input class="input" name="t" required placeholder="إتقان الكسور"></label><label class="field"><span>ينتهي في شهر (اختياري)</span><input class="input" type="month" name="mo"></label><label class="field"><span>خطواته الصغيرة، كل خطوة في سطر</span><textarea class="input" name="steps" rows="6" placeholder="مفهوم الكسر&#10;جمع الكسور&#10;ضرب الكسور"></textarea></label><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`),
+  editBig: d => { const g = S.subjects.find(x => x.id === d.s).plan.find(x => x.id === d.id); sheet('تعديل الهدف', `<form data-f="saveBig" data-s="${d.s}" data-id="${g.id}"><label class="field"><span>الهدف الكبير</span><input class="input" name="t" value="${esc(g.t)}" required></label><label class="field"><span>ينتهي في شهر</span><input class="input" type="month" name="mo" value="${g.due ? g.due.slice(0, 7) : ''}"></label><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`); },
+  delBig: async d => { if (!(await ask('حذف هذا الهدف الكبير وخطواته؟', 'حذف'))) return; const s = S.subjects.find(x => x.id === d.s); s.plan = s.plan.filter(x => x.id !== d.id); save(); render(); },
+  toggleStep: d => { const s = S.subjects.find(x => x.id === d.s), g = s.plan.find(x => x.id === d.b), st = g.steps.find(x => x.id === d.id); st.done = !st.done;
+    if (st.done) S.todos.forEach(t => { if (t.step === st.id) t.done = true; });
+    save(); render(); if (st.done) { toast(pick(CHEERS), 'ok'); if (g.steps.every(x => x.done) && !S.cele['b:' + g.id]) { S.cele['b:' + g.id] = 1; save(); confetti(); toast('اكتمل هدف «' + g.t + '»!', 'ok'); } } },
+  delStep: d => { const g = S.subjects.find(x => x.id === d.s).plan.find(x => x.id === d.b); g.steps = g.steps.filter(x => x.id !== d.id); S.todos = S.todos.filter(t => t.step !== d.id); save(); render(); },
+  schedStep: d => { const s = S.subjects.find(x => x.id === d.s), g = s.plan.find(x => x.id === d.b), st = g.steps.find(x => x.id === d.id);
+    if (S.todos.some(t => t.step === st.id && !t.done)) return toast('جُدولت مسبقاً، تجدها في «الخطة»');
+    S.todos.push({ id: uid(), done: false, created: logicalToday(), name: s.name + ': ' + st.t, mins: st.mins || 45, prio: 2, due: g.due && g.due >= logicalToday() ? g.due : '', subject: s.id, step: st.id });
+    replanToday(); render(); toast('جُدولت في أوقات فراغك', 'ok'); },
+  lessonFilter: d => { R.sub.lf = d.v; if (cur().v !== 'lessons') { R.stack = []; R.tab = 'lessons'; } render(true); },
+  openCl: d => { const s = S.subjects.find(x => x.id === d.s), L = currOf(s), i = L.findIndex(x => x.id === d.id); if (lessonState(s, i) === 'locked') return toast('أنهِ الدرس السابق واجتز اختباره أولاً'); go('cl', { s: d.s, l: d.id }); },
+  nextCl: d => { while (['cq', 'cl'].includes(cur().v)) R.stack.pop(); R.q = null; go('cl', { s: d.s, l: d.id }); },
+  startQuiz: d => { R.q = null; go('cq', { s: d.s, l: d.id }); },
+  qAns: d => { if (!R.q || R.q.done) return; R.q.ans[+d.i] = +d.j; render(); },
+  qRetry: () => { const v = cur(); R.q = null; render(); },
+  qCheck: () => { const q = R.q, s = S.subjects.find(x => x.id === q.s), l = currOf(s).find(x => x.id === q.l); if (!q.qs.every((_, k) => q.ans[k] != null)) return;
+    q.score = q.qs.filter((x, k) => q.ans[k] === x.a).length; q.done = true; const e = (s.cur[l.id] ||= {}); e.tries = (e.tries || 0) + 1;
+    if (q.score / q.qs.length >= .8) { e.pass = true; e.score = Math.max(e.score || 0, q.score); e.d = logicalToday(); confetti(); const L = currOf(s); if (L.every(x => s.cur[x.id]?.pass)) toast('أنهيت كل دروس ' + s.name + '!', 'ok'); else toast(pick(CHEERS), 'ok'); }
+    save(); render(true); },
+  lessonNote: d => { const s = S.subjects.find(x => x.id === d.s), e = s.cur[d.id] || {}; sheet('ملاحظاتي على الدرس', `<form data-f="saveLessonNote" data-s="${d.s}" data-id="${d.id}"><label class="field"><span>أهم ما تعلمته، وما يجب أن تتذكره</span><textarea class="input" name="n" rows="9" dir="auto" placeholder="اكتب بكلماتك أنت...">${esc(e.note || '')}</textarea></label><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`); },
+  editUrl: d => sheet('رابط الدرس', `<form data-f="saveLessonUrl" data-s="${d.s}" data-id="${d.id}"><label class="field"><span>الصق رابط الفيديو</span><input class="input ltr" style="display:block" name="u" type="url" placeholder="https://" value="${esc(S.subjects.find(x => x.id === d.s).cur[d.id]?.url || '')}"></label><div class="note">اتركه فارغاً للعودة إلى البحث في القناة.</div><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`),
+  addWritten: d => sheet('درس مكتوب', `<form data-f="saveWritten" data-s="${d.s}"><label class="field"><span>العنوان</span><input class="input" name="t" required dir="auto"></label><label class="field"><span>الدرس</span><textarea class="input" name="b" rows="10" dir="auto" placeholder="اكتب الدرس أو الملخص..."></textarea></label><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`),
+  editWritten: d => { const w = S.subjects.find(x => x.id === d.s).written.find(x => x.id === d.id); sheet('درس مكتوب', `<form data-f="saveWritten" data-s="${d.s}" data-id="${w.id}"><label class="field"><span>العنوان</span><input class="input" name="t" required dir="auto" value="${esc(w.t)}"></label><label class="field"><span>الدرس</span><textarea class="input" name="b" rows="10" dir="auto">${esc(w.b)}</textarea></label><div class="btns"><button type="button" class="btn bad" data-a="delWritten" data-s="${d.s}" data-id="${w.id}">حذف</button><button class="btn pri">حفظ</button></div></form>`); },
+  delWritten: async d => { if (!(await ask('حذف هذا الدرس المكتوب؟', 'حذف'))) return; const s = S.subjects.find(x => x.id === d.s); s.written = s.written.filter(x => x.id !== d.id); save(); closeSheet(); render(); },
   toggleGoal: d => { const o = ownerOf(d.k, d.o), g = o.goals.find(x => x.id === d.id); g.done = !g.done; save(); render(); if (g.done) { toast(pick(CHEERS), 'ok'); celebrateIfComplete(d.k, o); } },
   goalWeight: d => { const g = ownerOf(d.k, d.o).goals.find(x => x.id === d.id); g.w = g.w % 3 + 1; save(); render(); },
   delGoal: d => { const o = ownerOf(d.k, d.o); o.goals = o.goals.filter(x => x.id !== d.id); save(); render(); },
@@ -1134,7 +1250,15 @@ const F = {
   saveEvening: (fd, f) => { const date = f.dataset.date, tom = addDays(date, 1); let top = fd.getAll('top').slice(0, 3); const nt = (fd.get('newTask') || '').trim();
     if (nt) { const id = uid(); S.todos.push({ id, name: nt, mins: +fd.get('newMins') || 60, prio: 3, due: tom, done: false, created: date }); top = [...top, id].slice(-3); }
     S.reviews[date] = { rating: +fd.get('rating') || 0, note: fd.get('note').trim(), at: Date.now() }; S.top3[tom] = top; save(); back(); confetti(); toast('حُفظت المراجعة، وغدك جاهز', 'ok'); },
-  saveSubject: fd => { const name = fd.get('name').trim(); S.subjects.push({ id: uid(), name, sym: fd.get('sym').trim() || name[0], color: fd.get('color') || 'violet', lessons: null, goals: [], refs: [], done: {}, review: {} }); save(); closeSheet(); render(); },
+  saveBig: (fd, f) => { const s = S.subjects.find(x => x.id === f.dataset.s), mo = fd.get('mo'), due = mo ? ymd(new Date(+mo.slice(0, 4), +mo.slice(5, 7), 0)) : '';
+    if (f.dataset.id) { const g = s.plan.find(x => x.id === f.dataset.id); g.t = fd.get('t').trim(); g.due = due; }
+    else s.plan.push({ id: uid(), t: fd.get('t').trim(), due, steps: (fd.get('steps') || '').split('\n').map(x => x.trim()).filter(Boolean).map(t => ({ id: uid(), t, mins: 45, done: false })) });
+    save(); closeSheet(); render(); },
+  addStep: (fd, f) => { const g = S.subjects.find(x => x.id === f.dataset.s).plan.find(x => x.id === f.dataset.b); g.steps.push({ id: uid(), t: fd.get('t').trim(), mins: +fd.get('m') || 45, done: false }); S.cele['b:' + g.id] = 0; save(); render(); },
+  saveLessonNote: (fd, f) => { const s = S.subjects.find(x => x.id === f.dataset.s); (s.cur[f.dataset.id] ||= {}).note = fd.get('n').trim(); save(); closeSheet(); render(); toast('حُفظت ملاحظتك', 'ok'); },
+  saveLessonUrl: (fd, f) => { const u = fd.get('u').trim(), s = S.subjects.find(x => x.id === f.dataset.s); if (u && !/^https?:\/\//i.test(u)) return toast('الرابط يجب أن يبدأ بـ https://', 'bad'); const e = (s.cur[f.dataset.id] ||= {}); if (u) e.url = u; else delete e.url; save(); closeSheet(); render(); },
+  saveWritten: (fd, f) => { const s = S.subjects.find(x => x.id === f.dataset.s); if (f.dataset.id) { const w = s.written.find(x => x.id === f.dataset.id); w.t = fd.get('t').trim(); w.b = fd.get('b'); } else s.written.unshift({ id: uid(), t: fd.get('t').trim(), b: fd.get('b'), d: logicalToday() }); save(); closeSheet(); render(); },
+  saveSubject: fd => { const name = fd.get('name').trim(); S.subjects.push({ id: uid(), name, sym: fd.get('sym').trim() || name[0], color: fd.get('color') || 'violet', lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }); R.sub.lf = 'uni'; save(); closeSheet(); render(true); },
   addGoal: (fd, f) => { const o = ownerOf(f.dataset.k, f.dataset.o); const before = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); o.goals.push({ id: uid(), t: fd.get('t').trim(), w: +fd.get('w'), done: false }); save(); const after = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); render(); if (before != null && before !== after) toast(`كانت ${before}% وصارت ${after}% بعد إضافة الهدف`); },
   addMs: (fd, f) => { S.projects.find(x => x.id === f.dataset.p).milestones.push({ id: uid(), t: fd.get('t').trim(), date: fd.get('date') || '', done: false }); save(); render(); },
   addMoney: (fd, f) => { const amt = num(fd.get('amt')); if (!amt) return toast('اكتب مبلغاً صحيحاً'); S.projects.find(x => x.id === f.dataset.p).money[f.dataset.key].push({ id: uid(), t: fd.get('t').trim(), amt }); save(); render(); },
@@ -1211,7 +1335,7 @@ function ownerSetup() {
   }
 }
 function enterApp() {
-  ownerSetup(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); }
+  if (S) migrate(); ownerSetup(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); }
 
 // ================= الأحداث =================
 document.addEventListener('click', e => { const el = e.target.closest('[data-a]'); if (!el || el.disabled) return; const fn = A[el.dataset.a]; if (fn) { e.preventDefault(); fn(el.dataset, el, e); } });
