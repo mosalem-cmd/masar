@@ -998,12 +998,33 @@ VIEWS.more = () => {
     title: 'المزيد',
     html: `<div class="card row"><span class="sym c-indigo" style="font-family:inherit">${esc((S.profile.name || 'م').trim()[0] || 'م')}</span><div class="grow"><h3 style="margin:0">${esc(S.profile.name || 'حسابي')}</h3><small class="muted" id="syncState">${syncLabel()}</small></div></div>
     <div class="sec-h">الأدوات</div><div class="card"><div class="grid4">
-      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${S.projects.some(p => p.id === 'health') ? T('goHealth', 'dumbbell', 'الصحة', 'teal') : ''}${T('goQuit', 'shield', 'عادتي', 'violet')}
+      ${T('goSearch', 'sparkle', 'بحث', 'amber')}${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${S.projects.some(p => p.id === 'health') ? T('goHealth', 'dumbbell', 'الصحة', 'teal') : ''}${T('goQuit', 'shield', 'عادتي', 'violet')}
       ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}
     </div></div>
     <p class="faint" style="text-align:center;font-size:12px;margin-top:18px">${esc(S.settings.appName)} · النسخة 1</p>`
   };
 };
+function searchResults(q) {
+  const nz = t => String(t || '').toLowerCase().replace(/[\u064B-\u0652\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه'); q = nz(q.trim()); if (q.length < 2) return [];
+  const has = t => nz(t).includes(q), out = [];
+  S.subjects.forEach(s => { if (has(s.name)) out.push(['openSubject', { id: s.id }, s.name, 'مادة', s.color]);
+    currOf(s).forEach(l => { const n = s.cur?.[l.id]?.note; if (has(l.t) || has(n)) out.push(['openCl', { s: s.id, id: l.id }, l.t, has(l.t) ? s.name : 'ملاحظاتي · ' + s.name, s.color]); });
+    (s.plan || []).forEach(g => { if (has(g.t) || g.steps.some(x => has(x.t))) out.push(['openSubject', { id: s.id }, g.t, 'هدف كبير · ' + s.name, s.color]); });
+    (s.written || []).forEach(w => { if (has(w.title) || has(w.text)) out.push(['openSubject', { id: s.id }, w.title || 'درس مكتوب', 'درس مكتوب · ' + s.name, s.color]); });
+    (s.refs || []).forEach(r => { if (has(r.title)) out.push(['openSubject', { id: s.id }, r.title, 'مرجع · ' + s.name, s.color]); }); });
+  S.projects.forEach(p => { if (has(p.name) || has(p.desc)) out.push(['openProject', { id: p.id }, p.name, 'مشروع', p.color]); });
+  S.routine.forEach(r => { if (has(r.name)) out.push(['editRoutine', { id: r.id }, r.name, 'روتين · ' + r.start, 'slate']); });
+  S.todos.forEach(t => { if (has(t.name)) out.push(['tab', { t: 'today' }, t.name, 'مهمة مرنة', 'amber']); });
+  S.habits.forEach(h => { if (has(h.name)) out.push(['goQuit', { id: h.id }, h.name, 'عادة', 'violet']); });
+  S.cards.forEach(c => { if (has(c.q) || has(c.a)) out.push(['goCards', {}, c.q, 'بطاقة مراجعة', 'rose']); });
+  return out.slice(0, 40);
+}
+function searchHtml(q) {
+  const r = searchResults(q);
+  if (q.trim().length < 2) return '<div class="empty">اكتب حرفين على الأقل</div>';
+  return r.length ? `<div class="card">${r.map(([a, d, t, k, c]) => `<button class="list-row press" style="width:100%;text-align:right" data-a="${a}" ${Object.entries(d).map(([x, y]) => `data-${x}="${esc(y)}"`).join(' ')}><span class="grow"><b dir="auto">${esc(t)}</b><br><small class="muted">${esc(k)}</small></span>${ic('chev')}</button>`).join('')}</div>` : '<div class="empty">لا نتائج</div>';
+}
+VIEWS.search = () => ({ title: 'بحث', html: `<label class="field"><input class="input" id="sq" type="search" dir="auto" placeholder="ابحث في موادك ودروسك ومشاريعك ومهامك" value="${esc(R.sq || '')}" autofocus></label><div id="sr">${searchHtml(R.sq || '')}</div>`, after: () => $('#sq')?.focus() });
 VIEWS.library = () => {
   const f = R.sub.lib || 'all'; const all = [];
   S.subjects.forEach(s => s.refs.forEach(r => all.push(['s', s.id, r, s.name])));
@@ -1022,6 +1043,7 @@ VIEWS.stats = () => {
   const sm = weekSummary(today), q = S.habits.length ? { days: Math.max(...S.habits.map(habitStreak)) } : null;
   const sl = days.slice(7).map(d => S.health.sleep[d]).filter(x => x?.bed); const sAvg = sl.length ? (sl.reduce((a, x) => a + durMin(x.bed, x.wake), 0) / sl.length / 60).toFixed(1) : '—';
   return { title: 'الإحصائيات', html: `<div class="strip"><div class="stat"><small>متوسط 14 يوماً</small><b>${avg}%</b></div><div class="stat"><small>أيام متتالية ≥80%</small><b>${streak}</b></div><div class="stat"><small>متوسط النوم</small><b>${sAvg}</b></div><div class="stat"><small>تركيز 7 أيام</small><b>${fmtDur(days.slice(7).reduce((a, d) => a + focusMins(d), 0)) || '0'}</b></div>${q ? `<div class="stat"><small>أطول سلسلة عادات</small><b>${q.days}</b></div>` : ''}</div>
+    ${(() => { const W = 12, wd0 = parseYmd(today).getDay(), start = addDays(today, -(W * 7 - 1) - ((wd0 + 1) % 7 === 0 ? 0 : 0)); const cells = Array.from({ length: W * 7 }, (_, i) => { const d = addDays(today, i - (W * 7 - 1)), has = S.log[d] && Object.keys(S.log[d]).length, p = has ? dayStats(d).pct : -1; return `<i class="hm hm${p < 0 ? 0 : p < 40 ? 1 : p < 70 ? 2 : p < 100 ? 3 : 4}" title="${d} ${p < 0 ? '' : p + '%'}"></i>`; }); const lead = (parseYmd(addDays(today, -(W * 7 - 1))).getDay() + 1) % 7; return `<div class="card"><h3>آخر 12 أسبوعاً</h3><div class="heat">${'<i class="hm" style="visibility:hidden"></i>'.repeat(lead)}${cells.join('')}</div></div>`; })()}
     <div class="card"><h3>نسبة الإنجاز اليومية</h3><div class="bars">${P.map(([d, p]) => `<div class="b"><i style="height:${p}%" class="${p >= 100 ? 'full' : ''}"></i><small>${parseYmd(d).getDate()}</small></div>`).join('')}</div></div>
     <div class="card"><h3>أسباب عدم الإنجاز (7 أيام)</h3>${sm.reasons.length ? sm.reasons.map(([r, n]) => `<div class="list-row"><span class="grow">${esc(r)}</span><span class="tag bad">${n}</span></div>`).join('') : '<div class="empty">لا شيء مسجّل</div>'}</div>
     <div class="card"><h3>الدروس</h3>${S.subjects.map(s => `<div class="list-row">${symHtml(s.sym, s.color, 'sm')}<span class="grow">${esc(s.name)}${bar(subjectPct(s), true)}</span><b>${subjectPct(s)}%</b></div>`).join('')}</div>` };
@@ -1301,6 +1323,7 @@ const A = {
   },
   relapse: d => sheet('تسجيل انتكاسة', `<form data-f="saveRelapse" data-id="${d?.id || R.hab}"><p class="muted" style="margin-top:0">لا لوم. الانتكاس معلومة تساعدنا على تعديل الخطة.</p><div class="field"><span>السبب</span>${chipsHtml('reason', (H_REASONS[habitOf(d?.id || R.hab)?.key] || ['ملل', 'وحدة', 'تعب', 'توتر', 'الهاتف', 'أخرى']).map(x => [x, x]), d?.reason || '')}</div><label class="field"><span>ما الذي سأغيّره؟</span><input class="input" name="note" placeholder="مثلاً: الشاحن خارج الغرفة"></label><button class="btn pri block">حفظ وابدأ من جديد</button></form>`),
   // عام
+  goSearch: () => { R.sq = ''; go('search'); },
   goLibrary: () => go('library'), goStats: () => go('stats'), goSettings: () => go('settings'),
   logout: async () => { if (await ask('تسجيل الخروج؟ ستحتاج كلمة السر للدخول.', 'خروج')) logout(); },
   changePw: () => sheet('تغيير كلمة السر', `<form data-f="savePw"><label class="field"><span>رقم هاتفك</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" required></label><label class="field"><span>كلمة السر الحالية</span><input class="input" type="password" name="old" required></label><label class="field"><span>الجديدة</span><input class="input" type="password" name="n1" required minlength="6"></label><label class="field"><span>تأكيد الجديدة</span><input class="input" type="password" name="n2" required></label><div class="err" id="pwErr"></div><button class="btn pri block">حفظ</button></form>`),
@@ -1464,6 +1487,7 @@ function enterApp() {
 
 // ================= الأحداث =================
 document.addEventListener('click', e => { const el = e.target.closest('[data-a]'); if (!el || el.disabled) return; const fn = A[el.dataset.a]; if (fn) { e.preventDefault(); fn(el.dataset, el, e); } });
+document.addEventListener('input', e => { if (e.target.id === 'sq') { R.sq = e.target.value; $('#sr').innerHTML = searchHtml(R.sq); } });
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-f]'); if (!f) return; e.preventDefault(); const fn = F[f.dataset.f] || AUTH[f.dataset.f]; fn?.(new FormData(f), f); });
 document.addEventListener('change', e => { const el = e.target.closest('[data-c]'); if (el) C[el.dataset.c]?.(el); });
 addEventListener('online', () => syncNow());

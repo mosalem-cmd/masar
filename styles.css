@@ -298,3 +298,8 @@ button:disabled{opacity:.45;cursor:default}
 [dir=ltr] [style*="text-align:right"]{text-align:left!important}
 [dir=ltr] .tb-title,[dir=ltr] h1{text-align:center}
 [dir=ltr] .day-nav .pill svg,[dir=ltr] [data-a=back] svg{transform:scaleX(-1)}
+
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:4px;direction:ltr;overflow:hidden}
+.hm{width:100%;aspect-ratio:1;border-radius:4px;background:var(--card2);display:block;min-width:10px}
+.hm1{background:#c7d2fe}.hm2{background:#818cf8}.hm3{background:#4f46e5}.hm4{background:#16a34a}
+[data-theme=dark] .hm1{background:#312e81}[data-theme=dark] .hm2{background:#4338ca}

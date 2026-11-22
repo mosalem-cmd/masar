@@ -1,5 +1,6 @@
 // ترجمات إضافية: الجمل الطويلة والرسائل والنصائح.
 Object.assign(EN, {
+  'بحث': 'Search', 'ابحث في موادك ودروسك ومشاريعك ومهامك': 'Search your subjects, lessons, projects and tasks', 'اكتب حرفين على الأقل': 'Type at least two characters', 'لا نتائج': 'No results', 'مادة': 'Subject', 'هدف كبير': 'Big goal', 'مرجع': 'Reference', 'روتين': 'Routine', 'عادة': 'Habit', 'بطاقة مراجعة': 'Review card', 'آخر 12 أسبوعاً': 'Last 12 weeks',
   'حزمة الصلوات تضع الفجر عند 05:00، فعدّل وقته من «الخطة» إن كنت تستيقظ لاحقاً.': 'The prayers pack puts Fajr at 05:00; edit its time in Plan if you wake later.',
   'صغير': 'Small', 'متوسط': 'Medium', 'كبير': 'Large', 'عالية': 'High', 'متوسطة': 'Medium', 'منخفضة': 'Low', 'جامعة': 'University', 'صلاة': 'Prayer', 'قرآن': 'Quran', 'رياضة': 'Sport', 'نوم': 'Sleep', 'مشروع': 'Project',
   'اكتب رقماً صحيحاً': 'Enter a valid number', 'فعّل المزامنة': 'Enable sync', 'غير متصل، تُحفظ محلياً': 'Offline, saved locally', 'تغيّرت كلمة السر، سجّل الدخول من جديد': 'Password changed, please log in again',
