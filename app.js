@@ -890,14 +890,14 @@ const C = {
 function showAuth(mode) {
   $('#app').hidden = true; const a = $('#auth'); a.hidden = false; closeSheet(true); applyTheme();
   const has = Object.keys(accounts()).length; if (mode === 'login' && !has) mode = 'signup';
-  const logo = `<img class="auth-logo" src="icons/icon-192.png" alt="">`;
+  const logo = `<img class="auth-wordmark" src="icons/logo.png" alt="MASAR">`;
   const phone = `<label class="field"><span>رقم الهاتف</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" autocomplete="username" required placeholder="22xxxxxx"></label>`;
   const forms = {
     login: `<form data-f="authLogin">${phone}<label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" autocomplete="current-password" required></label>${sw('تذكرني على هذا الجهاز', 'name="remember"', true)}<div class="err" id="authErr"></div><button class="btn pri block">دخول</button></form><div class="btns" style="justify-content:space-between"><button class="link" data-a="authMode" data-m="recover">نسيت كلمة السر</button><button class="link" data-a="authMode" data-m="signup">حساب جديد</button></div>`,
     signup: `<form data-f="authSignup"><label class="field"><span>الاسم</span><input class="input" name="name" required></label>${phone}<label class="field"><span>كلمة السر (6 أحرف على الأقل)</span><input class="input" type="password" name="pw" autocomplete="new-password" required minlength="6"></label><label class="field"><span>تأكيد كلمة السر</span><input class="input" type="password" name="pw2" required></label><div class="err" id="authErr"></div><button class="btn pri block">إنشاء الحساب</button></form>${has ? '<div class="btns"><button class="link" data-a="authMode" data-m="login">لدي حساب</button></div>' : '<div class="note">بياناتك تبقى على هذا الهاتف فقط ومشفّرة بكلمة سرك.</div>'}`,
     recover: `<form data-f="authRecover">${phone}<label class="field"><span>رمز الاسترجاع</span><input class="input ltr" style="display:block" name="code" required placeholder="XXXX-XXXX-XXXX-XXXX"></label><label class="field"><span>كلمة سر جديدة</span><input class="input" type="password" name="pw" required minlength="6"></label><div class="err" id="authErr"></div><button class="btn pri block">استرجاع</button></form><div class="btns"><button class="link" data-a="authMode" data-m="login">رجوع</button></div>`
   };
-  a.innerHTML = `<div class="auth-card">${logo}<h1>${esc(S?.settings.appName || 'مسار')}</h1><p class="sub">${mode === 'signup' ? 'أنشئ حسابك' : mode === 'recover' ? 'استرجاع الحساب' : 'أهلاً بعودتك'}</p><div class="card">${forms[mode]}</div></div>`;
+  a.innerHTML = `<div class="auth-card">${logo}<p class="sub">${mode === 'signup' ? 'أنشئ حسابك' : mode === 'recover' ? 'استرجاع الحساب' : 'أهلاً بعودتك'}</p><div class="card">${forms[mode]}</div></div>`;
 }
 const AUTH = {
   authLogin: async fd => { const b = $('#auth button.pri'); b.disabled = true; try { await login(fd.get('phone'), fd.get('pw'), !!fd.get('remember')); enterApp(); } catch (e) { $('#authErr').textContent = e.message; } b.disabled = false; },

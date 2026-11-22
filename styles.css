@@ -207,6 +207,7 @@ textarea.input{min-height:90px;resize:vertical}
 /* ===== الدخول ===== */
 #auth{min-height:100vh;display:grid;place-items:center;padding:24px 18px}
 .auth-card{width:100%;max-width:400px}
+.auth-wordmark{display:block;width:100%;max-width:340px;margin:0 auto 14px;border-radius:22px}
 .auth-logo{width:84px;height:84px;border-radius:26px;margin:0 auto 12px;display:block}
 .auth-card h1{text-align:center;margin:0;font-size:30px;font-weight:900}
 .auth-card .sub{text-align:center;color:var(--tx2);margin:2px 0 22px}
