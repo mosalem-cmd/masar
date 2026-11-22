@@ -15,7 +15,7 @@ const daysBetween = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 864e5);
 const toMin = s => { const [h, m] = String(s || '0:0').split(':').map(Number); return h * 60 + (m || 0); };
 const fromMin = m => { m = ((Math.round(m) % 1440) + 1440) % 1440; return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
 const durMin = (a, b) => { let d = toMin(b) - toMin(a); if (d <= 0) d += 1440; return d; };
-const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)}${m % 60 ? ':' + pad(m % 60) : ''} س` : `${m} د`;
+const fmtDur = m => LANG === 'en' ? (m >= 60 ? `${Math.floor(m / 60)}${m % 60 ? ':' + pad(m % 60) : ''}h` : `${m}m`) : (m >= 60 ? `${Math.floor(m / 60)}${m % 60 ? ':' + pad(m % 60) : ''} س` : `${m} د`);
 const DOW = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const DOW_S = ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
 const WEEK = [6, 0, 1, 2, 3, 4, 5];
@@ -25,8 +25,8 @@ const fmtN = n => (Math.round(n * 100) / 100).toLocaleString('en-US');
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const sum = a => a.reduce((x, y) => x + (+y.amt || 0), 0);
 const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' م.ب' : Math.max(1, Math.round(b / 1024)) + ' ك.ب';
-const fmtGreg = d => new Intl.DateTimeFormat('ar-u-nu-latn', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
-const fmtHijri = d => { try { return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura-nu-latn', { day: 'numeric', month: 'long', year: 'numeric' }).format(d); } catch { return ''; } };
+const fmtGreg = d => new Intl.DateTimeFormat((LANG === 'en' ? 'en' : 'ar') + '-u-nu-latn', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+const fmtHijri = d => { try { return new Intl.DateTimeFormat((LANG === 'en' ? 'en' : 'ar-SA') + '-u-ca-islamic-umalqura-nu-latn', { day: 'numeric', month: 'long', year: 'numeric' }).format(d); } catch { return ''; } };
 const fmtShort = s => { const d = parseYmd(s); return `${d.getDate()}/${d.getMonth() + 1}`; };
 const nowMin = () => { const d = now(); return d.getHours() * 60 + d.getMinutes(); };
 const inRange = (m, a, b) => { const x = toMin(a), y = toMin(b); return x < y ? m >= x && m < y : m >= x || m < y; };
@@ -276,7 +276,7 @@ function defaultState(name) {
     v: 1, profile: { name, quit: false, quitSet: 1 },
     settings: { maxAuto: 120, reviewTime: '21:30', dayView: 'table', theme: 'auto', dayStart: 3, autoFrom: 420, autoTo: 1320, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
     routine: [], extra: {}, log: {}, cele: {}, subjects: [], projects: [], library: [], exams: [],
-    habits: [], quit: { start: t, relapses: [], urges: [] },
+    focus: null, focusLog: {}, cards: [], habits: [], quit: { start: t, relapses: [], urges: [] },
     health: { start: t, sessions: {}, sleep: {}, meals: {}, mealTimes: { b: '07:15', l: '14:45', d: '20:30' } },
     lastLesson: null, todos: [], targets: [], plan: {}, reviews: {}, top3: {}, flags: { plan1: 1, plan2: 1, uni1: 1, hab1: 1, setup: 0 }
   };
@@ -317,7 +317,7 @@ function migrate() {
   S.library ??= []; S.exams ??= []; S.todos ??= []; S.targets ??= []; S.plan ??= {}; S.reviews ??= {}; S.top3 ??= {}; S.settings.maxAuto ??= 120; S.settings.reviewTime ??= '21:30'; S.settings.dayView ??= 'table'; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
   if (S.profile.quitSet === undefined) { S.profile.quit = false; S.profile.quitSet = 1; }
-  S.flags ??= {}; S.habits ??= [];
+  S.flags ??= {}; S.habits ??= []; S.focusLog ??= {}; S.cards ??= []; S.focus ??= null;
   if (!S.flags.hab1) { S.flags.hab1 = 1; if (S.profile.quit === true) S.habits.push({ id: 'h_legacy', key: 'legacy', name: 'عادتي', kind: 'quit', start: S.quit.start, relapses: S.quit.relapses || [], urges: S.quit.urges || [], checks: {} }); }
   if (S.flags.setup === undefined) S.flags.setup = 1; S.settings.autoFrom ??= 420; S.settings.autoTo ??= 1320;
   S.subjects.forEach(s => { s.cur ??= {}; s.written ??= []; if (s.uni === undefined) s.uni = !['math', 'physics', 'english', 'french'].includes(s.id); s.plan ??= []; if (s.goals?.length) { s.plan.push({ id: uid(), t: 'أهداف سابقة', due: '', steps: s.goals.map(g => ({ id: g.id, t: g.t, mins: 60, done: !!g.done })) }); s.goals = []; } });
@@ -444,10 +444,11 @@ function dayTasks(date) {
   t = t.concat((S.extra[date] || []).map(x => ({ ...x, src: 'x' })), examTasks(date), autoBlocks(date).map(b => ({ ...b, src: 'a', subtxt: (b.top ? '★ من أهم 3 · ' : '') + (b.preview ? 'مقترح تلقائياً' : 'جُدول تلقائياً') })));
   return t.sort((a, b) => sortKey(a.start) - sortKey(b.start));
 }
+const preFresh = (date, t) => { const f = S.flags?.fresh; return !!f && f.d === date && t.start && sortKey(t.start) < f.m; };
 function dayStats(date) {
   const L = S.log[date] || {}, tasks = dayTasks(date), daily = dailyItems();
   let tot = 0, done = 0, pm = 0, dm = 0;
-  for (const t of [...tasks, ...daily]) { const e = L[t.id]; if (t.start && t.cat !== 'sleep') { pm += bMins(t); if (e?.s === 'done') dm += bMins(t); } if (e?.ex) continue; tot += t.w; if (e?.s === 'done') done += t.w; }
+  for (const t of [...tasks, ...daily]) { const e = L[t.id]; if (t.start && t.cat !== 'sleep') { pm += bMins(t); if (e?.s === 'done') dm += bMins(t); } if (e?.ex || preFresh(date, t)) continue; tot += t.w; if (e?.s === 'done') done += t.w; }
   return { tasks, daily, tot, done, pct: tot ? Math.round(done / tot * 100) : 0, planned: pm, doneMins: dm };
 }
 function canConfirm(date, id) {
@@ -555,7 +556,7 @@ function isDark() { const t = S?.settings.theme; return t === 'dark' || (t !== '
 function applyTheme() { const t = S?.settings.theme || 'auto'; if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; $('meta[name=theme-color]')?.setAttribute('content', isDark() ? '#000000' : '#F4F5F9'); }
 
 // ---------- اليوم ----------
-function lateTasks(date) { if (date !== logicalToday()) return []; const nm = nowLMin(), L = S.log[date] || {}; return dayTasks(date).filter(t => !t.preview && t.cat !== 'sleep' && !L[t.id] && sortKey(t.start) + bMins(t) <= nm); }
+function lateTasks(date) { if (date !== logicalToday()) return []; const nm = nowLMin(), L = S.log[date] || {}; return dayTasks(date).filter(t => !t.preview && t.cat !== 'sleep' && !L[t.id] && !preFresh(date, t) && sortKey(t.start) + bMins(t) <= nm); }
 function lateListHtml(list) {
   return list.map(t => `<div class="late-row"><div class="grow" style="min-width:0"><b dir="auto">${esc(t.name)}</b><br><small class="muted ltr">${t.start}–${t.end}</small></div><div class="l3"><button class="btn sm ok press" data-a="lateDone" data-id="${t.id}">تمّت</button>${t.cat === 'prayer' ? '' : `<button class="btn sm press" data-a="latePost" data-id="${t.id}">أجّلها</button>`}<button class="btn sm bad press" data-a="lateSkip" data-id="${t.id}">تخطّاها</button></div></div>`).join('');
 }
@@ -563,6 +564,16 @@ function showLate() { R.lateOpen = true; const l = lateTasks(logicalToday()); if
 function afterLate() { render(); const left = lateTasks(logicalToday()); if (R.lateOpen) { if (left.length) showLate(); else { closeSheet(); R.lateOpen = false; toast('كل شيء مؤكَّد، أحسنت', 'ok'); } } checkDayComplete(logicalToday()); }
 function maybeLate() { if (!S || !$('#auth').hidden || SHEET) return; if (R.tab !== 'today' || R.stack.length || R.day) return; if (!lateTasks(logicalToday()).length) return; if (Date.now() - (R.lateAt || 0) < 10 * 60e3) return; R.lateAt = Date.now(); showLate(); }
 const planSeg = on => `<div class="seg"><button class="${on === 'plan' ? 'on' : ''}" data-a="tab" data-t="plan">الروتين الأسبوعي</button><button class="${on === 'projects' ? 'on' : ''}" data-a="tab" data-t="projects">المشاريع</button></div>`;
+const fmtClock = sec => `${pad(Math.floor(sec / 60))}:${pad(sec % 60)}`;
+const focusMins = date => (S.focusLog[date] || []).reduce((a, x) => a + x.mins, 0);
+const CARD_GAP = [1, 2, 4, 7, 15, 30];
+const dueCards = () => { const t = logicalToday(); return S.cards.filter(c => c.due <= t); };
+function addCards(s, l, qs, ans) {
+  qs.forEach((x, k) => { if (ans[k] === x.a) return; const key = l.id + '|' + x.q + '|' + (x.e || '');
+    if (S.cards.some(c => c.key === key)) return;
+    S.cards.push({ id: uid(), key, s: s.id, l: l.id, sn: s.name, q: x.q, e: x.e || '', a: x.o[x.a], box: 0, due: logicalToday() }); });
+}
+const focusBanner = () => S.focus ? `<div class="card now-card row"><span class="tag pri">تركيز</span><b class="grow" dir="auto">${esc(S.focus.name)}</b><b class="ltr" data-tick="focus">${fmtClock(Math.floor((Date.now() - S.focus.t0) / 1000))}</b><button class="mini ok press" data-a="stopFocus" aria-label="إنهاء">${ic('check')}</button></div>` : '';
 VIEWS.today = () => {
   const today = logicalToday(), date = R.day || today, d = parseYmd(date), st = dayStats(date), L = S.log[date] || {};
   const nm = date === today ? nowLMin() : null, view = S.settings.dayView || 'table';
@@ -589,7 +600,7 @@ VIEWS.today = () => {
   if (nm != null) {
     const cur = st.tasks.find(t => { const a = sortKey(t.start); return a <= nm && nm < a + bMins(t) && t.cat !== 'sleep'; });
     const nxt = st.tasks.find(t => sortKey(t.start) > nm && !L[t.id]);
-    if (cur || nxt) nowNext = `<div class="card now-card">${cur ? `<div class="row"><span class="tag pri">الآن</span><b class="grow">${esc(cur.name)}</b><small class="muted">تبقى ${fmtDur(sortKey(cur.start) + bMins(cur) - nm)}</small>${L[cur.id]?.s === 'done' ? `<span class="tag ok">تم</span>` : `<button class="mini ok press" data-a="done" data-id="${cur.id}" aria-label="تم">${ic('check')}</button>`}</div>${bar(Math.round((nm - sortKey(cur.start)) / bMins(cur) * 100), true)}` : ''}
+    if (cur || nxt) nowNext = `<div class="card now-card">${cur ? `<div class="row"><span class="tag pri">الآن</span><b class="grow">${esc(cur.name)}</b><small class="muted">تبقى ${fmtDur(sortKey(cur.start) + bMins(cur) - nm)}</small>${!S.focus && L[cur.id]?.s !== 'done' && cur.cat !== 'prayer' ? `<button class="mini press" data-a="startFocus" data-id="${cur.id}" aria-label="ابدأ">${ic('play')}</button>` : ''}${L[cur.id]?.s === 'done' ? `<span class="tag ok">تم</span>` : `<button class="mini ok press" data-a="done" data-id="${cur.id}" aria-label="تم">${ic('check')}</button>`}</div>${bar(Math.round((nm - sortKey(cur.start)) / bMins(cur) * 100), true)}` : ''}
       ${nxt ? `<div class="row" style="${cur ? 'margin-top:12px' : ''}"><span class="tag">التالي</span><b class="grow">${esc(nxt.name)}</b><small class="muted">${sortKey(nxt.start) - nm <= 0 ? 'الآن' : 'بعد ' + fmtDur(sortKey(nxt.start) - nm)} · ${nxt.start}</small></div>` : ''}</div>`;
   }
   const evening = date === today && nm >= toMin(S.settings.reviewTime || '21:30') - 30 && !S.reviews?.[today];
@@ -601,12 +612,13 @@ VIEWS.today = () => {
       <div class="day-nav"><button class="pill press" data-a="dayShift" data-n="-1">${ic('prev')}السابق</button>${date !== today ? `<button class="pill on press" data-a="dayShift" data-n="0">اليوم</button>` : ''}<button class="pill press" data-a="dayShift" data-n="1">التالي${ic('next')}</button></div></div>
       ${ring(st.pct, 78, 8)}</div>
     ${evening || pastNoReview ? `<button class="card row press evening-cta" style="width:100%;text-align:right" data-a="goEvening" data-date="${date}"><span class="sym sm c-violet">${ic('moon')}</span><div class="grow"><b>مراجعة اليوم وتخطيط الغد</b><div class="muted" style="font-size:13px">دقيقتان: ما أنجزت، وأهم 3 مهام لغدك</div></div>${ic('chev')}</button>` : ''}
-    ${nowNext}${lateCard}${topCard}
+    ${focusBanner()}${nowNext}${lateCard}${topCard}
         ${view === 'line' ? timelineHtml(date, st.tasks, L, nm) : `<div class="card ttable">${rows || '<div class="empty">لا مهام في هذا اليوم</div>'}
 </div>`}
-    <div class="sumline"><span>مخطط ${fmtDur(st.planned)} · أنجزت ${fmtDur(st.doneMins)}</span><button class="pill press" data-a="dayView" data-v="${view === 'line' ? 'table' : 'line'}">${view === 'line' ? 'عرض الجدول' : 'الخط الزمني'}</button></div>
+    <div class="sumline"><span>مخطط ${fmtDur(st.planned)} · أنجزت ${fmtDur(st.doneMins)}${focusMins(date) ? ' · ركّزت ' + fmtDur(focusMins(date)) : ''}</span><button class="pill press" data-a="dayView" data-v="${view === 'line' ? 'table' : 'line'}">${view === 'line' ? 'عرض الجدول' : 'الخط الزمني'}</button></div>
     ${daily}
     <button class="big press" data-a="goQuit"><div class="row"><span class="sym c-violet">${ic(S.habits.length && habitLocked() ? 'lock' : 'shield')}</span><div class="grow"><h4>عادتي</h4><p>${S.habits.length ? (habitLocked() ? 'مقفل · افتحه بـ Face ID' : S.habits.map(h => esc(h.name)).slice(0, 3).join('، ')) : 'اختر عادة تريد تركها أو بناءها'}</p></div>${ic('chev')}</div></button>
+    ${isToday && dueCards().length ? `<button class="note press" style="width:100%;text-align:right" data-a="goCards">لديك ${dueCards().length} بطاقة للمراجعة اليوم ›</button>` : ''}
     ${(!TOKEN && backupDue) ? `<button class="note press" style="width:100%;text-align:right" data-a="goSettings">احفظ نسخة احتياطية أو فعّل المزامنة من «الإعدادات» حتى لا تضيع بياناتك ›</button>` : ''}`
   };
 };
@@ -693,6 +705,7 @@ VIEWS.lessons = () => {
     const last = S.lastLesson && S.subjects.find(s => s.id === S.lastLesson.s);
     const lastL = last && (LESSONS[last.lessons] || []).find(l => l.id === S.lastLesson.l);
     body = `${lastL ? `<button class="card row press" style="width:100%;text-align:right" data-a="openLesson" data-s="${last.id}" data-l="${lastL.id}"><span class="sym sm c-${last.color}">${ic('play')}</span><div class="grow"><small class="muted">تابع من حيث توقفت</small><div><b>${esc(lastL.title)}</b></div></div>${ic('chev')}</button>` : ''}
+    ${dueCards().length ? `<button class="card row press" style="width:100%;text-align:right" data-a="goCards"><span class="sym sm c-rose">${ic('sparkle')}</span><div class="grow"><b>بطاقات المراجعة</b><div class="muted" style="font-size:13px">${dueCards().length} بطاقة من أخطائك تنتظرك</div></div>${ic('chev')}</button>` : ''}
     ${due.length ? `<button class="card row press" style="width:100%;text-align:right" data-a="goReview"><span class="sym sm c-amber">${ic('timer')}</span><div class="grow"><b>مراجعة اليوم</b><div class="muted" style="font-size:13px">${due.length} ${due.length === 1 ? 'درس' : 'دروس'} حان وقت مراجعتها</div></div>${ic('chev')}</button>` : ''}
     ${S.subjects.filter(s => !s.uni).map(s => { const L = LESSONS[s.lessons] || [], p = subjectPct(s), n = L.filter(l => s.done[l.id]).length, hasC = currOf(s).length, nx = hasC && nextLesson(s);
       return `<button class="big press ${s.paused ? 'paused' : ''}" data-a="${hasC ? 'lessonFilter' : 'openSubject'}" data-v="${s.id}" data-id="${s.id}"><div class="row">${symHtml(s.sym, s.color)}<div class="grow"><h4>${esc(s.name)}</h4><p>${s.paused ? 'مؤجّلة · ' : ''}${hasC ? `${passedN(s)} من ${currOf(s).length} دروس · ` : ''}${planLine(s, hasC ? [] : L, n)}</p></div><span class="pct">${p}%</span></div>${bar(p)}${nx ? `<div class="muted" style="font-size:13px;margin-top:8px;text-align:right" dir="auto">الدرس التالي: <b>${nx.i + 1}. ${esc(nx.l.t)}</b></div>` : s.paused ? '' : nextStepLine(s)}</button>`; }).join('')}
@@ -715,6 +728,13 @@ VIEWS.cl = v => {
     <div class="note">${e.url ? 'رابطك المباشر محفوظ.' : 'الرابط بحث في القناة عن عنوان الدرس. إن وجدت الفيديو الأنسب فألصق رابطه.'}</div><button class="btn sm block" data-a="editUrl" data-s="${s.id}" data-id="${l.id}">${ic('link')} ألصق رابطاً مباشراً</button></div>
     <div class="card"><h3>2. اختبر نفسك</h3><p class="muted" style="margin-top:0">5 أسئلة. النجاح بـ 4 صحيحة يفتح الدرس التالي${e.tries ? ` · محاولاتك: ${e.tries}` : ''}.</p><button class="btn pri block" data-a="startQuiz" data-s="${s.id}" data-id="${l.id}">ابدأ الاختبار</button></div>${note}`;
   return { title: 'الدرس ' + (i + 1), html: `${head}${body}<div style="height:84px"></div><button class="note-fab press" data-a="lessonNote" data-s="${s.id}" data-id="${l.id}">${ic('edit')} ملاحظاتي${e.note ? ' ●' : ''}</button>` };
+};
+VIEWS.cards = () => {
+  const skip = new Set(R.cardSkip || []), due = dueCards().sort((a, b) => (skip.has(a.id) - skip.has(b.id)) || a.box - b.box), c = due[0], show = R.card?.show;
+  if (!c) { R.cardSkip = []; return { title: 'بطاقات المراجعة', html: `<div class="card empty" style="padding:28px 16px"><b>أنهيت بطاقات اليوم</b><p class="muted">${S.cards.length ? `لديك ${S.cards.length} بطاقة قادمة في أيام لاحقة.` : 'تُضاف هنا تلقائياً الأسئلة التي تخطئ فيها في اختبارات الدروس، وتتكرر بفواصل متزايدة حتى تحفظها.'}</p></div>` }; }
+  return { title: 'بطاقات المراجعة', html: `<div class="muted" style="text-align:center;margin:0 0 8px">${due.length} متبقية اليوم · ${esc(c.sn)}</div>
+    <div class="card qz"><div class="qt" dir="auto">${esc(c.q)}</div>${c.e ? `<div class="qe ltr">${esc(c.e)}</div>` : ''}${show ? `<hr style="border:0;border-top:1px solid var(--line);margin:14px 0"><div style="text-align:center;font-size:20px;font-weight:800" dir="auto">${esc(c.a)}</div>` : ''}</div>
+    ${show ? `<div class="btns"><button class="btn bad" data-a="cardAns" data-id="${c.id}" data-ok="0">لم أعرفها</button><button class="btn ok" data-a="cardAns" data-id="${c.id}" data-ok="1">عرفتها</button></div>` : `<button class="btn pri block" data-a="cardRevealA">أظهر الجواب</button>`}` };
 };
 VIEWS.cq = v => {
   const { s, L, i, l } = clCtx(v); if (!l) return VIEWS.lessons();
@@ -1000,7 +1020,7 @@ VIEWS.stats = () => {
   let streak = 0; for (let i = 1; i <= 60; i++) { const d = addDays(today, -i); if (S.log[d] && dayStats(d).pct >= 80) streak++; else break; }
   const sm = weekSummary(today), q = S.habits.length ? { days: Math.max(...S.habits.map(habitStreak)) } : null;
   const sl = days.slice(7).map(d => S.health.sleep[d]).filter(x => x?.bed); const sAvg = sl.length ? (sl.reduce((a, x) => a + durMin(x.bed, x.wake), 0) / sl.length / 60).toFixed(1) : '—';
-  return { title: 'الإحصائيات', html: `<div class="strip"><div class="stat"><small>متوسط 14 يوماً</small><b>${avg}%</b></div><div class="stat"><small>أيام متتالية ≥80%</small><b>${streak}</b></div><div class="stat"><small>متوسط النوم</small><b>${sAvg}</b></div>${q ? `<div class="stat"><small>أطول سلسلة عادات</small><b>${q.days}</b></div>` : ''}</div>
+  return { title: 'الإحصائيات', html: `<div class="strip"><div class="stat"><small>متوسط 14 يوماً</small><b>${avg}%</b></div><div class="stat"><small>أيام متتالية ≥80%</small><b>${streak}</b></div><div class="stat"><small>متوسط النوم</small><b>${sAvg}</b></div><div class="stat"><small>تركيز 7 أيام</small><b>${fmtDur(days.slice(7).reduce((a, d) => a + focusMins(d), 0)) || '0'}</b></div>${q ? `<div class="stat"><small>أطول سلسلة عادات</small><b>${q.days}</b></div>` : ''}</div>
     <div class="card"><h3>نسبة الإنجاز اليومية</h3><div class="bars">${P.map(([d, p]) => `<div class="b"><i style="height:${p}%" class="${p >= 100 ? 'full' : ''}"></i><small>${parseYmd(d).getDate()}</small></div>`).join('')}</div></div>
     <div class="card"><h3>أسباب عدم الإنجاز (7 أيام)</h3>${sm.reasons.length ? sm.reasons.map(([r, n]) => `<div class="list-row"><span class="grow">${esc(r)}</span><span class="tag bad">${n}</span></div>`).join('') : '<div class="empty">لا شيء مسجّل</div>'}</div>
     <div class="card"><h3>الدروس</h3>${S.subjects.map(s => `<div class="list-row">${symHtml(s.sym, s.color, 'sm')}<span class="grow">${esc(s.name)}${bar(subjectPct(s), true)}</span><b>${subjectPct(s)}%</b></div>`).join('')}</div>` };
@@ -1009,6 +1029,7 @@ VIEWS.settings = () => ({
   title: 'الإعدادات', html: `<form data-f="saveSettings" class="card"><label class="field"><span>اسمك</span><input class="input" name="name" value="${esc(S.profile.name)}"></label>
     <label class="field"><span>اسم التطبيق</span><input class="input" name="appName" value="${esc(S.settings.appName)}"></label>
     <div class="field"><span>المظهر</span>${chipsHtml('theme', [['auto', 'حسب الهاتف'], ['light', 'فاتح'], ['dark', 'ليلي']], S.settings.theme)}</div>
+    <div class="field"><span>اللغة</span>${chipsHtml('lang', [['ar', 'العربية'], ['en', 'English']], LANG)}</div>
     <label class="field"><span>العملة</span><input class="input" name="currency" value="${esc(S.settings.currency)}"></label>
     <label class="field"><span>يبدأ اليوم الجديد عند الساعة</span><select class="input" name="dayStart">${[0, 1, 2, 3, 4, 5].map(h => `<option value="${h}" ${S.settings.dayStart === h ? 'selected' : ''}>${pad(h)}:00${h === 3 ? ' (مناسب للسهر)' : ''}</option>`).join('')}</select></label>
     <div class="two"><label class="field"><span>أقصى وقت للجدولة التلقائية يومياً</span><select class="input" name="maxAuto">${[0, 60, 90, 120, 180, 240].map(m => `<option value="${m}" ${S.settings.maxAuto === m ? 'selected' : ''}>${m ? fmtDur(m) : 'إيقاف'}</option>`).join('')}</select></label><label class="field"><span>وقت مراجعة المساء</span><input class="input" type="time" name="reviewTime" value="${S.settings.reviewTime}"></label></div>
@@ -1087,11 +1108,18 @@ function readTask(fd, isRoutine) {
 // ================= الإجراءات =================
 const A = {
   back, closeSheet: () => { R.lateOpen = false; closeSheet(); },
+  startFocus: d => { const date = logicalToday(), t = dayTasks(date).find(x => x.id === d.id); if (!t) return; if (S.focus) return toast('لديك جلسة تركيز جارية'); S.focus = { id: t.id, name: t.name, date, t0: Date.now(), subject: t.subject || null }; save(); closeSheet(true); R.tab === 'today' && cur().v !== 'today' ? setTab('today') : render(); toast('بدأ التركيز، ضع هاتفك جانباً', 'ok'); },
+  stopFocus: async () => { const f = S.focus; if (!f) return; const mins = Math.max(1, Math.round((Date.now() - f.t0) / 60000)); (S.focusLog[f.date] ||= []).push({ id: f.id, name: f.name, mins, subject: f.subject }); S.focus = null; save(); render();
+    const e = (S.log[f.date] || {})[f.id]; if (e?.s !== 'done' && await ask(`ركّزت ${fmtDur(mins)}. هل أنهيت «${f.name}»؟`, 'نعم، أنهيتها')) A.lateDone({ id: f.id }); else toast(`سُجّل ${fmtDur(mins)} من التركيز`, 'ok'); },
+  goCards: () => { R.card = null; go('cards'); },
+  cardRevealA: () => { R.card = { ...(R.card || {}), show: true }; render(); },
+  cardAns: d => { const c = S.cards.find(x => x.id === d.id); if (!c) return; if (d.ok === '1') { c.box++; if (c.box >= CARD_GAP.length) S.cards = S.cards.filter(x => x.id !== c.id); else c.due = addDays(logicalToday(), CARD_GAP[c.box]); } else { c.box = 0; c.due = logicalToday(); R.cardSkip = [...(R.cardSkip || []), c.id]; } R.card = null; save(); render(true); },
+  authLang: () => { setLang(LANG === 'en' ? 'ar' : 'en'); showAuth(R.authMode); },
   skipSetup: () => { S.flags.setup = 1; save(); closeSheet(); },
   showSetupBtn: () => showSetup(),
   toggleDone: () => { R.showDone = !R.showDone; render(); },
   rowMenu: d => { const date = R.day || logicalToday(), t = dayTasks(date).find(x => x.id === d.id); if (!t) return; const e = (S.log[date] || {})[t.id];
-    sheet(t.name, `<div class="stack-btns">${e?.s === 'miss' ? `<button class="btn block" data-a="miss" data-id="${t.id}">إلغاء «لم أفعلها»</button>` : `<button class="btn bad block" data-a="miss" data-id="${t.id}">لم أفعلها</button>`}${date === logicalToday() && t.cat !== 'prayer' && !t.preview && !e ? `<button class="btn block" data-a="postponeAny" data-id="${t.id}">أجّلها إلى وقت لاحق</button>` : ''}<button class="btn block" data-a="openTask" data-id="${t.id}">تعديل أو تفاصيل</button></div>`); },
+    sheet(t.name, `<div class="stack-btns">${e?.s === 'miss' ? `<button class="btn block" data-a="miss" data-id="${t.id}">إلغاء «لم أفعلها»</button>` : `<button class="btn bad block" data-a="miss" data-id="${t.id}">لم أفعلها</button>`}${date === logicalToday() && !S.focus && !t.preview && !e && t.cat !== 'sleep' && t.cat !== 'prayer' ? `<button class="btn block" data-a="startFocus" data-id="${t.id}">${ic('play')} ابدأ الآن</button>` : ''}${date === logicalToday() && t.cat !== 'prayer' && !t.preview && !e ? `<button class="btn block" data-a="postponeAny" data-id="${t.id}">أجّلها إلى وقت لاحق</button>` : ''}<button class="btn block" data-a="openTask" data-id="${t.id}">تعديل أو تفاصيل</button></div>`); },
   postponeAny: d => { closeSheet(); A.latePost(d, true); },
   lateDone: d => { setLog(logicalToday(), d.id, { s: 'done', t: Date.now() }); afterLate(); },
   lateSkip: d => { setLog(logicalToday(), d.id, { s: 'miss', r: 'لم يتم', t: Date.now() }); afterLate(); },
@@ -1204,7 +1232,7 @@ const A = {
   qCheck: () => { const q = R.q, s = S.subjects.find(x => x.id === q.s), l = currOf(s).find(x => x.id === q.l); if (!q.qs.every((_, k) => q.ans[k] != null)) return;
     q.score = q.qs.filter((x, k) => q.ans[k] === x.a).length; q.done = true; const e = (s.cur[l.id] ||= {}); e.tries = (e.tries || 0) + 1;
     if (q.score / q.qs.length >= .8) { e.pass = true; e.score = Math.max(e.score || 0, q.score); e.d = logicalToday(); confetti(); const L = currOf(s); if (L.every(x => s.cur[x.id]?.pass)) toast('أنهيت كل دروس ' + s.name + '!', 'ok'); else toast(pick(CHEERS), 'ok'); }
-    save(); render(true); },
+    addCards(s, l, q.qs, q.ans); save(); render(true); },
   lessonNote: d => { const s = S.subjects.find(x => x.id === d.s), e = s.cur[d.id] || {}; sheet('ملاحظاتي على الدرس', `<form data-f="saveLessonNote" data-s="${d.s}" data-id="${d.id}"><label class="field"><span>أهم ما تعلمته، وما يجب أن تتذكره</span><textarea class="input" name="n" rows="9" dir="auto" placeholder="اكتب بكلماتك أنت...">${esc(e.note || '')}</textarea></label><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`); },
   editUrl: d => sheet('رابط الدرس', `<form data-f="saveLessonUrl" data-s="${d.s}" data-id="${d.id}"><label class="field"><span>الصق رابط الفيديو</span><input class="input ltr" style="display:block" name="u" type="url" placeholder="https://" value="${esc(S.subjects.find(x => x.id === d.s).cur[d.id]?.url || '')}"></label><div class="note">اتركه فارغاً للعودة إلى البحث في القناة.</div><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`),
   addWritten: d => sheet('درس مكتوب', `<form data-f="saveWritten" data-s="${d.s}"><label class="field"><span>العنوان</span><input class="input" name="t" required dir="auto"></label><label class="field"><span>الدرس</span><textarea class="input" name="b" rows="10" dir="auto" placeholder="اكتب الدرس أو الملخص..."></textarea></label><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`),
@@ -1361,7 +1389,7 @@ const F = {
     S.settings.autoFrom = toMin(wake) + 60; S.settings.autoTo = Math.min(1440, sm - 60);
     fd.getAll('pack').forEach(applyPack);
     (fd.get('uni') || '').split('\n').map(x => x.trim()).filter(Boolean).forEach((n, i) => S.subjects.push({ id: uid(), name: n, sym: n[0], color: COLORS[(i + 3) % COLORS.length], lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }));
-    S.flags.setup = 1; delete S.plan[logicalToday()]; save(); closeSheet(); R.stack = []; R.tab = 'today'; render(true); toast('تم الإعداد، عدّل أي شيء من «الخطة» و«الإعدادات»', 'ok'); },
+    S.flags.setup = 1; S.flags.fresh = { d: logicalToday(), m: nowLMin() }; delete S.plan[logicalToday()]; save(); closeSheet(); R.stack = []; R.tab = 'today'; render(true); toast('تم الإعداد، عدّل أي شيء من «الخطة» و«الإعدادات»', 'ok'); },
   saveSubject: fd => { const name = fd.get('name').trim(); S.subjects.push({ id: uid(), name, sym: fd.get('sym').trim() || name[0], color: fd.get('color') || 'violet', lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }); R.sub.lf = 'uni'; save(); closeSheet(); render(true); },
   addGoal: (fd, f) => { const o = ownerOf(f.dataset.k, f.dataset.o); const before = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); o.goals.push({ id: uid(), t: fd.get('t').trim(), w: +fd.get('w'), done: false }); save(); const after = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); render(); if (before != null && before !== after) toast(`كانت ${before}% وصارت ${after}% بعد إضافة الهدف`); },
   addMs: (fd, f) => { S.projects.find(x => x.id === f.dataset.p).milestones.push({ id: uid(), t: fd.get('t').trim(), date: fd.get('date') || '', done: false }); save(); render(); },
@@ -1386,7 +1414,7 @@ const F = {
   saveRelapse: (fd, f) => { const reason = fd.get('reason') || 'غير محدد', h = habitOf(f.dataset.id); h.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:' + h.id + ':')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
   savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1'), fd.get('phone')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
   saveEnableSync: async fd => { const b = $('.sheet button.pri'); b.disabled = true; try { await enableSync(fd.get('pw'), fd.get('phone'), fd.get('code').trim()); closeSheet(); toast(R.sync?.state === 'ok' ? 'فُعّلت المزامنة' : 'فُعّلت، وستُرفع عند الاتصال', 'ok'); render(); } catch (e) { $('#esErr').textContent = e.message; b.disabled = false; } },
-  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.autoFrom = +fd.get('autoFrom') || 420; S.settings.autoTo = +fd.get('autoTo') || 1320; S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; S.settings.habitLock = !!fd.get('hlock'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
+  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; { const nl = fd.get('lang') || 'ar'; S.settings.lang = nl; if (nl !== LANG) setLang(nl); } S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.autoFrom = +fd.get('autoFrom') || 420; S.settings.autoTo = +fd.get('autoTo') || 1320; S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; S.settings.habitLock = !!fd.get('hlock'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
   pickFile: el => { const file = el.files[0]; el.value = ''; if (!file) return; R.pendingFile = { file, k: el.dataset.k, o: el.dataset.o }; sheet('إضافة ملف', `<div class="list-row">${ic('file')}<span class="grow"><b>${esc(file.name)}</b><br><small class="muted">${fmtSize(file.size)}</small></span></div><div class="note">سيُحفظ داخل التطبيق ويأخذ ${fmtSize(file.size)} من مساحة هاتفك، ويعمل دون إنترنت.</div><button class="btn pri block" style="margin-top:12px" data-a="confirmFile">أضف الملف</button>`); },
@@ -1413,6 +1441,7 @@ const C = {
 function showAuth(mode) {
   $('#app').hidden = true; const a = $('#auth'); a.hidden = false; closeSheet(true); applyTheme();
   const has = Object.keys(accounts()).length;
+  const langBtn = `<button type="button" class="pill press" style="position:absolute;top:14px;inset-inline-end:14px" data-a="authLang">${LANG === 'en' ? 'العربية' : 'English'}</button>`;
   const logo = `<img class="auth-wordmark" src="icons/logo.png" alt="MASAR">`;
   const phone = `<label class="field"><span>رقم الهاتف</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" autocomplete="username" required placeholder="22xxxxxx"></label>`;
   const forms = {
@@ -1420,7 +1449,7 @@ function showAuth(mode) {
     signup: `<form data-f="authSignup"><label class="field"><span>الاسم</span><input class="input" name="name" required></label>${phone}<label class="field"><span>كلمة السر (6 أحرف على الأقل)</span><input class="input" type="password" name="pw" autocomplete="new-password" required minlength="6"></label><label class="field"><span>تأكيد كلمة السر</span><input class="input" type="password" name="pw2" required></label><div class="err" id="authErr"></div><button class="btn pri block">إنشاء الحساب</button></form><div class="btns"><button class="link" data-a="authMode" data-m="login">لدي حساب: تسجيل الدخول</button></div><div class="note">بياناتك مشفّرة بكلمة سرك، على هاتفك وفي السحابة، ولا يقرؤها أحد غيرك.</div><label class="btn block sm" style="margin-top:12px;cursor:pointer">${ic('upload')} لدي نسخة احتياطية: استعادة<input type="file" hidden accept=".json,application/json" data-c="importBackup"></label>`,
     recover: `<form data-f="authRecover">${phone}<label class="field"><span>رمز الاسترجاع</span><input class="input ltr" style="display:block" name="code" required placeholder="XXXX-XXXX-XXXX-XXXX"></label><label class="field"><span>كلمة سر جديدة</span><input class="input" type="password" name="pw" required minlength="6"></label><div class="err" id="authErr"></div><button class="btn pri block">استرجاع</button></form><div class="btns"><button class="link" data-a="authMode" data-m="login">رجوع</button></div>`
   };
-  a.innerHTML = `<div class="auth-card">${logo}<p class="sub">${mode === 'signup' ? 'أنشئ حسابك' : mode === 'recover' ? 'استرجاع الحساب' : 'أهلاً بعودتك'}</p><div class="card">${forms[mode]}</div></div>`;
+  R.authMode = mode; a.innerHTML = `<div class="auth-card">${langBtn}${logo}<p class="sub">${mode === 'signup' ? 'أنشئ حسابك' : mode === 'recover' ? 'استرجاع الحساب' : 'أهلاً بعودتك'}</p><div class="card">${forms[mode]}</div></div>`;
 }
 const AUTH = {
   authLogin: async fd => { const b = $('#auth button.pri'); b.disabled = true; try { await login(fd.get('phone'), fd.get('pw'), !!fd.get('remember')); enterApp(); } catch (e) { $('#authErr').textContent = e.message; } b.disabled = false; },
@@ -1430,7 +1459,7 @@ const AUTH = {
 };
 A.enter = () => enterApp();
 function enterApp() {
-  if (S) migrate(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); setTimeout(() => { if (S.flags?.setup === 0) showSetup(); else maybeLate(); }, 600); }
+  if (S) migrate(); if (S?.settings.lang && S.settings.lang !== LANG) setLang(S.settings.lang); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); setTimeout(() => { if (S.flags?.setup === 0) showSetup(); else maybeLate(); }, 600); }
 
 // ================= الأحداث =================
 document.addEventListener('click', e => { const el = e.target.closest('[data-a]'); if (!el || el.disabled) return; const fn = A[el.dataset.a]; if (fn) { e.preventDefault(); fn(el.dataset, el, e); } });
@@ -1445,6 +1474,7 @@ setInterval(() => {
   if (!S) return;
   const v = cur().v;
   if (v === 'urge' && R.urge) { const left = Math.max(0, 600 - (Date.now() - R.urge.start) / 1000), el = $('[data-tick=urge]'); if (el) el.textContent = `${pad(Math.floor(left / 60))}:${pad(Math.floor(left % 60))}`; const rg = $('#urgeRing'); if (rg) rg.setAttribute('stroke-dashoffset', (565.5 * (1 - left / 600)).toFixed(1)); }
+  if (S.focus) { const el = $('[data-tick=focus]'); if (el) el.textContent = fmtClock(Math.floor((Date.now() - S.focus.t0) / 1000)); }
   if (R.rest) { const left = Math.ceil((R.rest.end - Date.now()) / 1000), el = $('[data-tick=rest]'); if (left <= 0) { R.rest = null; $('#restBar')?.remove(); if (navigator.vibrate) navigator.vibrate(200); toast('انتهت الراحة، المجموعة التالية', 'ok'); } else if (el) el.textContent = `${Math.floor(left / 60)}:${pad(left % 60)}`; }
   if (v === 'today' && !SHEET && !document.activeElement?.matches('input,textarea,select') && Date.now() - R.lastRender > 60000) render();
 }, 1000);
