@@ -794,7 +794,18 @@ const A = {
   changePw: () => sheet('تغيير كلمة السر', `<form data-f="savePw"><label class="field"><span>كلمة السر الحالية</span><input class="input" type="password" name="old" required></label><label class="field"><span>الجديدة</span><input class="input" type="password" name="n1" required minlength="6"></label><label class="field"><span>تأكيد الجديدة</span><input class="input" type="password" name="n2" required></label><div class="err" id="pwErr"></div><button class="btn pri block">حفظ</button></form>`),
   exportBackup: async () => { await persist(); const data = { app: 'masar', v: 1, id: ACC, acc: accounts()[ACC], data: localStorage.getItem('masar.d.' + ACC), at: new Date().toISOString() };
     download(`masar-backup-${logicalToday()}.json`, JSON.stringify(data), 'application/json'); S.settings.lastBackup = logicalToday(); save(); toast('احفظ الملف في «الملفات»', 'ok'); if (cur().v === 'today') render(); },
-  exportIcs: () => { download('masar-reminders.ics', buildIcs(), 'text/calendar'); sheet('التذكيرات', `<div class="note" style="margin-top:0">افتح الملف من التنزيلات واختر «إضافة الكل» ليضيف الآيفون التنبيهات إلى التقويم، فتصلك حتى والتطبيق مغلق ودون إنترنت.</div><div class="note">لنغمة هادئة: الإعدادات ← الأصوات ← تنبيهات التقويم.</div><div class="note">إن غيّرت أوقاتك، احذف تقويم «${esc(S.settings.appName)}» القديم ثم صدّر من جديد.</div>`); },
+  exportIcs: async () => {
+    const ics = buildIcs(), file = new File([ics], 'masar-reminders.ics', { type: 'text/calendar' });
+    let shared = false;
+    try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: 'تذكيرات MASAR' }); shared = true; } } catch (e) { if (e.name === 'AbortError') shared = true; }
+    if (!shared) download('masar-reminders.ics', ics, 'text/calendar');
+    sheet('إضافة التنبيهات إلى التقويم', `<div class="list-row"><span class="tag pri">1</span><span class="grow">في نافذة المشاركة اختر <b>«حفظ في الملفات»</b> واحفظه في أي مجلد.</span></div>
+    <div class="list-row"><span class="tag pri">2</span><span class="grow">افتح تطبيق <b>«الملفات»</b> واضغط على الملف <b>masar-reminders</b>.</span></div>
+    <div class="list-row"><span class="tag pri">3</span><span class="grow">تظهر قائمة الأحداث، اضغط <b>«إضافة الكل»</b> واختر التقويم.</span></div>
+    <div class="note">بعدها تصلك التنبيهات والتطبيق مغلق ودون إنترنت. ولنغمة هادئة: الإعدادات ← الأصوات ← تنبيهات التقويم.</div>
+    <div class="note">إن غيّرت أوقاتك: احذف الأحداث القديمة من التقويم ثم أعد التصدير.</div>
+    <button class="btn pri block" style="margin-top:12px" data-a="exportIcs">${ic('upload')} مشاركة الملف مرة أخرى</button>`);
+  },
   wipe: async () => { if (!(await ask('سيُحذف حسابك وكل بياناته من هذا الجهاز نهائياً.', 'حذف نهائي', 'احذف'))) return; const acc = accounts(); delete acc[ACC]; setAccounts(acc); localStorage.removeItem('masar.d.' + ACC); const id = ACC; S = null; await idbDo('kv', 'readwrite', s => s.delete('session')); const all = await idbDo('files', 'readonly', s => s.getAll()); for (const f of all || []) if (f.acc === id) await idbDo('files', 'readwrite', s => s.delete(f.id)); DEK = null; ACC = null; showAuth(Object.keys(accounts()).length ? 'login' : 'signup'); },
   authMode: d => showAuth(d.m)
 };
