@@ -113,6 +113,70 @@ function idbDo(store, mode, fn) {
   return new Promise((res, rej) => { const t = DB.transaction(store, mode); const q = fn(t.objectStore(store)); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); });
 }
 
+// ================= المزامنة المشفّرة (Supabase) =================
+const SB_URL = 'https://nlucpmhzwgsonnpgriav.supabase.co', SB_KEY = 'sb_publishable_C2DA_kgNsozsIjPPb9w10g_vs3CtBoI';
+let TOKEN = null;
+async function rpc(fn, args) {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) throw new Error('net'); return r.json();
+}
+const digitsOf = p => normDigits(p).replace(/\D/g, '');
+async function deriveToken(secret, phone, kind) {
+  const salt = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(`masar-${kind}:${digitsOf(phone)}`)));
+  const base = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, base, 256);
+  return [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+const metaKey = () => 'masar.sync.' + ACC;
+const getMeta = () => { try { return JSON.parse(localStorage.getItem(metaKey()) || '{}'); } catch { return {}; } };
+const setMeta = m => localStorage.setItem(metaKey(), JSON.stringify(m));
+const remoteAcc = () => { const a = { ...accounts()[ACC] }; delete a.bio; return a; };
+function setSync(state) { R.sync = { state, at: Date.now() }; const el = $('#syncState'); if (el) el.innerHTML = syncLabel(); }
+function syncLabel() {
+  const s = R.sync?.state;
+  if (!TOKEN) return `<button class="link" data-a="enableSync">فعّل المزامنة</button>`;
+  return { ok: '<span class="ok-tx">متزامن مع السحابة</span>', busy: 'جارٍ المزامنة…', off: 'غير متصل، تُحفظ محلياً', auth: '<span class="bad-tx">تغيّرت كلمة السر، سجّل الدخول من جديد</span>', locked: '<span class="bad-tx">محاولات كثيرة، انتظر قليلاً</span>' }[s] || 'تُحفظ محلياً';
+}
+function remoteErr(res) { return { not_found: 'لا يوجد حساب بهذا الرقم', auth: 'كلمة السر غير صحيحة', locked: 'محاولات كثيرة، انتظر 15 دقيقة', exists: 'يوجد حساب بهذا الرقم، سجّل الدخول' }[res?.error] || 'تعذّر الاتصال'; }
+async function storeRemote(id, res) {
+  const acc = accounts(), bio = acc[id]?.bio; acc[id] = { ...res.acc, ...(bio ? { bio } : {}) }; setAccounts(acc);
+  localStorage.setItem('masar.d.' + id, JSON.stringify(res.blob));
+  localStorage.setItem('masar.sync.' + id, JSON.stringify({ rev: res.rev, mtime: res.mtime, dirty: false }));
+}
+let syncing = false, pushT;
+async function syncNow(opts = {}) {
+  if (!TOKEN || !S || syncing) return; if (!navigator.onLine) return setSync('off');
+  syncing = true; setSync('busy');
+  try {
+    let m = getMeta();
+    if (m.pendingSignup) {
+      const res = await rpc('masar_signup', { p_id: ACC, p_token: TOKEN, p_rec: m.pendingRec || null, p_acc: remoteAcc(), p_blob: JSON.parse(localStorage.getItem('masar.d.' + ACC)), p_mtime: m.mtime || Date.now() });
+      if (res.rev) { m = { rev: res.rev, mtime: m.mtime || Date.now(), dirty: false }; setMeta(m); }
+      else if (res.error === 'exists') { delete m.pendingSignup; delete m.pendingRec; m.rev = 0; setMeta(m); }
+      else throw new Error('x');
+    }
+    if (!m.dirty || opts.pull) {
+      const res = await rpc('masar_get', { p_id: ACC, p_token: TOKEN });
+      if (res.error) { setSync(res.error === 'auth' ? 'auth' : res.error === 'locked' ? 'locked' : 'off'); return; }
+      if (res.rev > (m.rev || 0)) {
+        if (!m.dirty || res.mtime > (m.mtime || 0)) { await applyRemote(res); setSync('ok'); return; }
+        m.forcePush = true;
+      }
+    }
+    if (m.dirty || m.forcePush || opts.newToken) {
+      const res = await rpc('masar_put', { p_id: ACC, p_token: opts.oldToken || TOKEN, p_base_rev: m.rev || 0, p_acc: remoteAcc(), p_blob: JSON.parse(localStorage.getItem('masar.d.' + ACC)), p_mtime: m.mtime || Date.now(), p_force: !!(m.forcePush || opts.newToken), p_new_token: opts.newToken || null, p_new_rec: null });
+      if (res.rev) { setMeta({ rev: res.rev, mtime: m.mtime, dirty: false }); }
+      else if (res.conflict) { if (res.mtime > (m.mtime || 0)) await applyRemote(res); else { m.forcePush = true; setMeta(m); syncing = false; return syncNow(); } }
+      else { setSync(res.error === 'auth' ? 'auth' : 'off'); return; }
+    }
+    setSync('ok');
+  } catch { setSync('off'); } finally { syncing = false; }
+}
+async function applyRemote(res) {
+  await storeRemote(ACC, res); await loadData(); applyTheme();
+  if (!$('#app').hidden && !SHEET) render();
+}
+
 async function signup(phone, name, pw) {
   const id = await phoneId(phone); const acc = accounts();
   if (acc[id]) throw new Error('يوجد حساب بهذا الرقم، سجّل الدخول');
@@ -121,8 +185,18 @@ async function signup(phone, name, pw) {
   const code = genCode();
   const w1 = await aesEnc(await kdf(pw, salt), raw), w2 = await aesEnc(await kdf(normCode(code), saltR), raw);
   const owner = !Object.values(acc).some(a => a.owner);
-  acc[id] = { name, owner, salt: b64(salt), saltR: b64(saltR), w1, w2, created: Date.now() }; setAccounts(acc);
-  ACC = id; DEK = await importDek(raw); S = defaultState(name, owner); await persist(); await rememberSession();
+  const entry = { name, owner, salt: b64(salt), saltR: b64(saltR), w1, w2, created: Date.now() };
+  const dek = await importDek(raw), state = defaultState(name, owner);
+  const blob = await aesEnc(dek, enc.encode(JSON.stringify(state)));
+  const tok = await deriveToken(pw, phone, 't'), rec = await deriveToken(normCode(code), phone, 'r'), mtime = Date.now();
+  let meta;
+  try {
+    const res = await rpc('masar_signup', { p_id: id, p_token: tok, p_rec: rec, p_acc: entry, p_blob: blob, p_mtime: mtime });
+    if (res.error) throw new Error(remoteErr(res));
+    meta = { rev: res.rev, mtime, dirty: false };
+  } catch (e) { if (e.message !== 'net' && e.message !== 'Failed to fetch' && !(e instanceof TypeError)) throw e; meta = { rev: 0, mtime, dirty: true, pendingSignup: true, pendingRec: rec }; }
+  acc[id] = entry; setAccounts(acc); localStorage.setItem('masar.d.' + id, JSON.stringify(blob));
+  ACC = id; DEK = dek; S = state; TOKEN = tok; setMeta(meta); await rememberSession();
   return code;
 }
 async function unwrapWith(id, secret, which) {
@@ -130,21 +204,44 @@ async function unwrapWith(id, secret, which) {
   try { return await aesDec(await kdf(secret, ub64(which === 'pw' ? a.salt : a.saltR)), which === 'pw' ? a.w1 : a.w2); }
   catch { throw new Error(which === 'pw' ? 'كلمة السر غير صحيحة' : 'رمز الاسترجاع غير صحيح'); }
 }
+async function fetchRemote(id, token) {
+  let res; try { res = await rpc('masar_get', { p_id: id, p_token: token }); } catch { throw new Error('هذا الحساب غير موجود على هذا الجهاز، واتصل بالإنترنت لجلبه'); }
+  if (res.error) throw new Error(remoteErr(res));
+  await storeRemote(id, res);
+}
 async function login(phone, pw, remember) {
-  const id = await phoneId(phone); const raw = await unwrapWith(id, pw, 'pw');
-  ACC = id; DEK = await importDek(raw); await loadData(); if (remember) await rememberSession();
+  const id = await phoneId(phone), tok = await deriveToken(pw, phone, 't');
+  if (!accounts()[id]) await fetchRemote(id, tok);
+  const raw = await unwrapWith(id, pw, 'pw');
+  ACC = id; DEK = await importDek(raw); TOKEN = tok; await loadData(); if (remember) await rememberSession();
 }
 async function recover(phone, code, newPw) {
   if (newPw.length < 6) throw new Error('كلمة السر 6 أحرف على الأقل');
-  const id = await phoneId(phone); const raw = await unwrapWith(id, normCode(code), 'rec');
+  const id = await phoneId(phone), rec = await deriveToken(normCode(code), phone, 'r');
+  if (!accounts()[id]) await fetchRemote(id, rec);
+  const raw = await unwrapWith(id, normCode(code), 'rec');
   const acc = accounts(); const salt = crypto.getRandomValues(new Uint8Array(16));
   acc[id].salt = b64(salt); acc[id].w1 = await aesEnc(await kdf(newPw, salt), raw); setAccounts(acc);
-  ACC = id; DEK = await importDek(raw); await loadData(); await rememberSession();
+  ACC = id; DEK = await importDek(raw); await loadData();
+  TOKEN = await deriveToken(newPw, phone, 't'); const m = getMeta(); m.dirty = true; m.mtime = Date.now(); setMeta(m);
+  await rememberSession(); syncNow({ oldToken: rec, newToken: TOKEN });
 }
-async function changePw(oldPw, newPw) {
+async function changePw(oldPw, newPw, phone) {
   if (newPw.length < 6) throw new Error('كلمة السر 6 أحرف على الأقل');
   const raw = await unwrapWith(ACC, oldPw, 'pw'); const acc = accounts(); const salt = crypto.getRandomValues(new Uint8Array(16));
+  if (await phoneId(phone) !== ACC) throw new Error('رقم الهاتف لا يطابق الحساب');
   acc[ACC].salt = b64(salt); acc[ACC].w1 = await aesEnc(await kdf(newPw, salt), raw); setAccounts(acc);
+  const oldTok = await deriveToken(oldPw, phone, 't'), newTok = await deriveToken(newPw, phone, 't');
+  const m = getMeta(); m.dirty = true; m.mtime = Date.now(); setMeta(m);
+  TOKEN = newTok; await rememberSession(); await syncNow({ oldToken: oldTok, newToken: newTok });
+}
+async function enableSync(pw, phone, code) {
+  if (await phoneId(phone) !== ACC) throw new Error('رقم الهاتف لا يطابق الحساب');
+  await unwrapWith(ACC, pw, 'pw'); let rec = null;
+  if (code) { await unwrapWith(ACC, normCode(code), 'rec'); rec = await deriveToken(normCode(code), phone, 'r'); }
+  TOKEN = await deriveToken(pw, phone, 't'); await persist();
+  const m = getMeta(); setMeta({ ...m, rev: 0, mtime: Date.now(), dirty: true, pendingSignup: true, pendingRec: rec });
+  await rememberSession(); await syncNow();
 }
 async function loadData() {
   const blob = localStorage.getItem('masar.d.' + ACC);
@@ -152,10 +249,13 @@ async function loadData() {
   S = blob ? JSON.parse(dec.decode(await aesDec(DEK, JSON.parse(blob)))) : defaultState(acc?.name || '', !!acc?.owner);
   migrate();
 }
-async function persist() { if (!S || !DEK) return; const o = await aesEnc(DEK, enc.encode(JSON.stringify(S))); localStorage.setItem('masar.d.' + ACC, JSON.stringify(o)); }
-let saveT; const save = () => { clearTimeout(saveT); saveT = setTimeout(persist, 250); };
-async function rememberSession() { await idbDo('kv', 'readwrite', s => s.put({ id: ACC, key: DEK }, 'session')); }
-async function logout() { await persist(); await idbDo('kv', 'readwrite', s => s.delete('session')); S = null; DEK = null; ACC = null; R.stack = []; R.tab = 'today'; showAuth('login'); }
+async function persist(changed = true) {
+  if (!S || !DEK) return; const o = await aesEnc(DEK, enc.encode(JSON.stringify(S))); localStorage.setItem('masar.d.' + ACC, JSON.stringify(o));
+  if (changed && ACC) { const m = getMeta(); m.dirty = true; m.mtime = Date.now(); setMeta(m); clearTimeout(pushT); pushT = setTimeout(() => syncNow(), 2500); }
+}
+let saveT = null; const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { saveT = null; persist(); }, 250); };
+async function rememberSession() { await idbDo('kv', 'readwrite', s => s.put({ id: ACC, key: DEK, token: TOKEN }, 'session')); }
+async function logout() { if (saveT) { clearTimeout(saveT); saveT = null; await persist(); } await syncNow(); await idbDo('kv', 'readwrite', s => s.delete('session')); S = null; DEK = null; ACC = null; TOKEN = null; R.stack = []; R.tab = 'today'; showAuth('login'); }
 
 // ================= الحالة الافتراضية =================
 function defaultMoney() { return { costs: [], rev: [], deduct: true, split: false, partners: [] }; }
@@ -364,7 +464,8 @@ VIEWS.today = () => {
     ${q ? `<button class="big press" data-a="goQuit"><div class="row"><span class="sym c-indigo">${ic('flame')}</span><div class="grow"><h4>${q.days} ${q.days === 1 ? 'يوم' : 'أيام'} نظيفة</h4><p>أفضل سلسلة: ${q.best} · التالية: ${q.next ? q.next + ' يوماً' : 'واصل'}</p></div>${ic('chev')}</div>${q.next ? bar(Math.round(q.days / q.next * 100), true) : ''}</button>
     <button class="urge press" data-a="goUrge">${ic('wave')} أشعر برغبة</button>` : ''}
     <div class="card row"><span class="sym sm c-amber">${ic('sparkle')}</span><div class="grow"><b style="font-size:13px" class="muted">نصيحة اليوم</b><div style="font-size:15px">${esc(tip)}</div></div></div>
-    ${backupDue ? `<button class="card row press" style="width:100%;text-align:right" data-a="exportBackup"><span class="sym sm c-slate">${ic('download')}</span><div class="grow"><b>حان وقت النسخة الاحتياطية</b><div class="muted" style="font-size:13px">احفظ نسخة مشفّرة في «الملفات» حتى لا تضيع بياناتك</div></div></button>` : ''}`
+    ${!TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="enableSync"><span class="sym sm c-cyan">${ic('upload')}</span><div class="grow"><b>فعّل المزامنة السحابية</b><div class="muted" style="font-size:13px">لتدخل من أي هاتف ولا تضيع بياناتك عند الحذف</div></div></button>` : ''}
+    ${backupDue && !TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="exportBackup"><span class="sym sm c-slate">${ic('download')}</span><div class="grow"><b>حان وقت النسخة الاحتياطية</b><div class="muted" style="font-size:13px">احفظ نسخة مشفّرة في «الملفات» حتى لا تضيع بياناتك</div></div></button>` : ''}`
   };
 };
 function quitInfo() {
@@ -579,7 +680,7 @@ VIEWS.more = () => {
   const T = (a, icon, l, c) => `<button class="tile press" data-a="${a}">${`<span class="sym c-${c}">${ic(icon)}</span>`}${l}</button>`;
   return {
     title: 'المزيد',
-    html: `<div class="card row"><span class="sym c-indigo" style="font-family:inherit">${esc((S.profile.name || 'م').trim()[0] || 'م')}</span><div class="grow"><h3 style="margin:0">${esc(S.profile.name || 'حسابي')}</h3><small class="muted">البيانات مشفّرة على هذا الجهاز</small></div></div>
+    html: `<div class="card row"><span class="sym c-indigo" style="font-family:inherit">${esc((S.profile.name || 'م').trim()[0] || 'م')}</span><div class="grow"><h3 style="margin:0">${esc(S.profile.name || 'حسابي')}</h3><small class="muted" id="syncState">${syncLabel()}</small></div></div>
     <div class="sec-h">الأدوات</div><div class="card"><div class="grid4">
       ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${T('goHealth', 'dumbbell', 'الصحة', 'teal')}${quitOn() ? T('goQuit', 'shield', 'عاداتي', 'violet') : ''}
       ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('exportIcs', 'bell', 'التذكيرات', 'rose')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}${T('exportBackup', 'download', 'نسخة احتياطية', 'slate')}
@@ -792,7 +893,7 @@ const A = {
   // عام
   goLibrary: () => go('library'), goStats: () => go('stats'), goSettings: () => go('settings'),
   logout: async () => { if (await ask('تسجيل الخروج؟ ستحتاج كلمة السر للدخول.', 'خروج')) logout(); },
-  changePw: () => sheet('تغيير كلمة السر', `<form data-f="savePw"><label class="field"><span>كلمة السر الحالية</span><input class="input" type="password" name="old" required></label><label class="field"><span>الجديدة</span><input class="input" type="password" name="n1" required minlength="6"></label><label class="field"><span>تأكيد الجديدة</span><input class="input" type="password" name="n2" required></label><div class="err" id="pwErr"></div><button class="btn pri block">حفظ</button></form>`),
+  changePw: () => sheet('تغيير كلمة السر', `<form data-f="savePw"><label class="field"><span>رقم هاتفك</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" required></label><label class="field"><span>كلمة السر الحالية</span><input class="input" type="password" name="old" required></label><label class="field"><span>الجديدة</span><input class="input" type="password" name="n1" required minlength="6"></label><label class="field"><span>تأكيد الجديدة</span><input class="input" type="password" name="n2" required></label><div class="err" id="pwErr"></div><button class="btn pri block">حفظ</button></form>`),
   exportBackup: async () => { await persist(); const data = { app: 'masar', v: 1, id: ACC, acc: accounts()[ACC], data: localStorage.getItem('masar.d.' + ACC), at: new Date().toISOString() };
     download(`masar-backup-${logicalToday()}.json`, JSON.stringify(data), 'application/json'); S.settings.lastBackup = logicalToday(); save(); toast('احفظ الملف في «الملفات»', 'ok'); if (cur().v === 'today') render(); },
   exportIcs: async () => {
@@ -808,6 +909,8 @@ const A = {
     <button class="btn pri block" style="margin-top:12px" data-a="exportIcs">${ic('upload')} مشاركة الملف مرة أخرى</button>`);
   },
   wipe: async () => { if (!(await ask('سيُحذف حسابك وكل بياناته من هذا الجهاز نهائياً.', 'حذف نهائي', 'احذف'))) return; const acc = accounts(); delete acc[ACC]; setAccounts(acc); localStorage.removeItem('masar.d.' + ACC); const id = ACC; S = null; await idbDo('kv', 'readwrite', s => s.delete('session')); const all = await idbDo('files', 'readonly', s => s.getAll()); for (const f of all || []) if (f.acc === id) await idbDo('files', 'readwrite', s => s.delete(f.id)); DEK = null; ACC = null; showAuth(Object.keys(accounts()).length ? 'login' : 'signup'); },
+  enableSync: () => sheet('تفعيل المزامنة', `<form data-f="saveEnableSync"><p class="muted" style="margin-top:0">تُرفع بياناتك مشفّرة بكلمة سرك، فتدخل من أي هاتف وتجدها كما هي. لا يقرؤها أحد غيرك.</p><label class="field"><span>رقم هاتفك</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" required></label><label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" required></label><label class="field"><span>رمز الاسترجاع (اختياري، ليعمل «نسيت كلمة السر» من هاتف آخر)</span><input class="input ltr" style="display:block" name="code" placeholder="XXXX-XXXX-XXXX-XXXX"></label><div class="err" id="esErr"></div><button class="btn pri block">تفعيل</button></form>`),
+  syncNowBtn: () => syncNow({ pull: true }),
   authMode: d => showAuth(d.m)
 };
 function findLesson(id) { return Object.values(LESSONS).flat().find(l => l.id === id); }
@@ -875,7 +978,8 @@ const F = {
   saveSleep: fd => { const t = logicalToday(); S.health.sleep[t] = { bed: fd.get('bed'), wake: fd.get('wake'), q: +fd.get('q') || 3 }; save(); render(); const h = durMin(fd.get('bed'), fd.get('wake')) / 60; toast(h >= 7 ? `نمت ${h.toFixed(1)} ساعة، ممتاز` : `نمت ${h.toFixed(1)} ساعة. حاول النوم أبكر الليلة`, h >= 7 ? 'ok' : ''); },
   saveSet: (fd, f) => { const n = parseInt(normDigits(fd.get('n'))); if (!(n >= 0)) return toast('اكتب رقماً'); const t = logicalToday(), ses = S.health.sessions[t] ||= { sets: {} }, arr = ses.sets[f.dataset.id] ||= []; arr[+f.dataset.i] = n; for (let i = 0; i < arr.length; i++) if (arr[i] === undefined) arr[i] = null; save(); closeSheet(); R.rest = { end: Date.now() + EXERCISES[f.dataset.id].rest * 1000 }; render(); },
   saveRelapse: fd => { const reason = fd.get('reason') || 'غير محدد'; S.quit.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
-  savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
+  savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1'), fd.get('phone')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
+  saveEnableSync: async fd => { const b = $('.sheet button.pri'); b.disabled = true; try { await enableSync(fd.get('pw'), fd.get('phone'), fd.get('code').trim()); closeSheet(); toast(R.sync?.state === 'ok' ? 'فُعّلت المزامنة' : 'فُعّلت، وستُرفع عند الاتصال', 'ok'); render(); } catch (e) { $('#esErr').textContent = e.message; b.disabled = false; } },
   saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); if (S.profile.owner) S.profile.quit = !!fd.get('quit'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
@@ -902,12 +1006,12 @@ const C = {
 // ================= الدخول =================
 function showAuth(mode) {
   $('#app').hidden = true; const a = $('#auth'); a.hidden = false; closeSheet(true); applyTheme();
-  const has = Object.keys(accounts()).length; if (mode === 'login' && !has) mode = 'signup';
+  const has = Object.keys(accounts()).length;
   const logo = `<img class="auth-wordmark" src="icons/logo.png" alt="MASAR">`;
   const phone = `<label class="field"><span>رقم الهاتف</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" autocomplete="username" required placeholder="22xxxxxx"></label>`;
   const forms = {
     login: `<form data-f="authLogin">${phone}<label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" autocomplete="current-password" required></label>${sw('تذكرني على هذا الجهاز', 'name="remember"', true)}<div class="err" id="authErr"></div><button class="btn pri block">دخول</button></form><div class="btns" style="justify-content:space-between"><button class="link" data-a="authMode" data-m="recover">نسيت كلمة السر</button><button class="link" data-a="authMode" data-m="signup">حساب جديد</button></div>`,
-    signup: `<form data-f="authSignup"><label class="field"><span>الاسم</span><input class="input" name="name" required></label>${phone}<label class="field"><span>كلمة السر (6 أحرف على الأقل)</span><input class="input" type="password" name="pw" autocomplete="new-password" required minlength="6"></label><label class="field"><span>تأكيد كلمة السر</span><input class="input" type="password" name="pw2" required></label><div class="err" id="authErr"></div><button class="btn pri block">إنشاء الحساب</button></form>${has ? '<div class="btns"><button class="link" data-a="authMode" data-m="login">لدي حساب</button></div>' : '<div class="note">بياناتك تبقى على هذا الهاتف فقط ومشفّرة بكلمة سرك.</div>'}<label class="btn block sm" style="margin-top:12px;cursor:pointer">${ic('upload')} لدي نسخة احتياطية: استعادة<input type="file" hidden accept=".json,application/json" data-c="importBackup"></label>`,
+    signup: `<form data-f="authSignup"><label class="field"><span>الاسم</span><input class="input" name="name" required></label>${phone}<label class="field"><span>كلمة السر (6 أحرف على الأقل)</span><input class="input" type="password" name="pw" autocomplete="new-password" required minlength="6"></label><label class="field"><span>تأكيد كلمة السر</span><input class="input" type="password" name="pw2" required></label><div class="err" id="authErr"></div><button class="btn pri block">إنشاء الحساب</button></form><div class="btns"><button class="link" data-a="authMode" data-m="login">لدي حساب: تسجيل الدخول</button></div><div class="note">بياناتك مشفّرة بكلمة سرك، على هاتفك وفي السحابة، ولا يقرؤها أحد غيرك.</div><label class="btn block sm" style="margin-top:12px;cursor:pointer">${ic('upload')} لدي نسخة احتياطية: استعادة<input type="file" hidden accept=".json,application/json" data-c="importBackup"></label>`,
     recover: `<form data-f="authRecover">${phone}<label class="field"><span>رمز الاسترجاع</span><input class="input ltr" style="display:block" name="code" required placeholder="XXXX-XXXX-XXXX-XXXX"></label><label class="field"><span>كلمة سر جديدة</span><input class="input" type="password" name="pw" required minlength="6"></label><div class="err" id="authErr"></div><button class="btn pri block">استرجاع</button></form><div class="btns"><button class="link" data-a="authMode" data-m="login">رجوع</button></div>`
   };
   a.innerHTML = `<div class="auth-card">${logo}<p class="sub">${mode === 'signup' ? 'أنشئ حسابك' : mode === 'recover' ? 'استرجاع الحساب' : 'أهلاً بعودتك'}</p><div class="card">${forms[mode]}</div></div>`;
@@ -925,10 +1029,11 @@ function enterApp() { $('#auth').hidden = true; $('#app').hidden = false; applyT
 document.addEventListener('click', e => { const el = e.target.closest('[data-a]'); if (!el || el.disabled) return; const fn = A[el.dataset.a]; if (fn) { e.preventDefault(); fn(el.dataset, el, e); } });
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-f]'); if (!f) return; e.preventDefault(); const fn = F[f.dataset.f] || AUTH[f.dataset.f]; fn?.(new FormData(f), f); });
 document.addEventListener('change', e => { const el = e.target.closest('[data-c]'); if (el) C[el.dataset.c]?.(el); });
+addEventListener('online', () => syncNow());
 let lastY = 0;
 addEventListener('scroll', () => { const y = scrollY, tb = $('#topbar'); if (!tb) return; if (y > lastY + 6 && y > 70) tb.classList.add('hide'); else if (y < lastY - 6 || y < 40) tb.classList.remove('hide'); lastY = y; }, { passive: true });
 let hiddenAt = 0;
-document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); persist(); return; } if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); if (saveT) { clearTimeout(saveT); saveT = null; persist(); } return; } syncNow(); if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); });
 setInterval(() => {
   if (!S) return;
   const v = cur().v;
@@ -970,8 +1075,8 @@ async function boot() {
   $('#tabbar').innerHTML = [['today', 'اليوم'], ['lessons', 'الدروس'], ['projects', 'المشاريع'], ['plan', 'الخطة'], ['more', 'المزيد']].map(([t, l]) => `<button class="tab press" data-a="tab" data-t="${t}">${ic(t)}<span>${l}</span></button>`).join('');
   if (!window.crypto?.subtle) { $('#auth').hidden = false; $('#auth').innerHTML = '<div class="card">يجب فتح التطبيق من رابط آمن (https).</div>'; return; }
   await idb();
-  try { const s = await idbDo('kv', 'readonly', st => st.get('session')); if (s && accounts()[s.id]) { ACC = s.id; DEK = s.key; await loadData(); return accounts()[ACC].bio ? showLock() : enterApp(); } } catch (e) { console.warn(e); }
-  showAuth('login');
+  try { const s = await idbDo('kv', 'readonly', st => st.get('session')); if (s && accounts()[s.id]) { ACC = s.id; DEK = s.key; TOKEN = s.token || null; await loadData(); syncNow(); return accounts()[ACC].bio ? showLock() : enterApp(); } } catch (e) { console.warn(e); }
+  showAuth(Object.keys(accounts()).length ? 'login' : 'signup');
 }
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 boot();
