@@ -309,6 +309,7 @@ function showSetup() {
   sheet('أهلاً بك في MASAR', `<form data-f="saveSetup"><p class="muted" style="margin-top:0">أخبرنا عن يومك، وأضف ما يناسبك. كل شيء قابل للتعديل لاحقاً.</p>
     <div class="two"><label class="field"><span>أستيقظ</span><select class="input" name="wake">${opt(['04:00', '04:30', '05:00', '05:30', '06:00', '06:30', '07:00', '07:30', '08:00', '09:00'], '06:00')}</select></label>
     <label class="field"><span>أنام</span><select class="input" name="sleep">${opt(['21:00', '21:30', '22:00', '22:30', '23:00', '23:30', '00:00', '01:00'], '23:00')}</select></label></div>
+    <p class="muted" style="margin:-4px 0 10px;font-size:13px">حزمة الصلوات تضع الفجر عند 05:00، فعدّل وقته من «الخطة» إن كنت تستيقظ لاحقاً.</p>
     <div class="field"><span>أضف حزماً جاهزة (اختياري)</span>${Object.entries(PACKS).map(([k, [n, d]]) => `<label class="list-row" style="gap:10px"><input type="checkbox" name="pack" value="${k}" ${hasPack(k) ? 'disabled' : ''}><span class="grow"><b>${esc(n)}</b><br><small class="muted">${esc(d)}</small></span>${hasPack(k) ? '<span class="tag ok">مضافة</span>' : ''}</label>`).join('')}</div>
     <label class="field"><span>موادك الدراسية، كل مادة في سطر (اختياري)</span><textarea class="input" name="uni" rows="3" dir="auto" placeholder="مثال: التحليل 1"></textarea></label>
     <button class="btn pri block" style="margin-top:12px">ابدأ</button><button type="button" class="btn block" style="margin-top:8px" data-a="skipSetup">تخطّي وابدأ فارغاً</button></form>`);

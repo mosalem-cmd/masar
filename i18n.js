@@ -89,10 +89,24 @@ const EN = {
   'نُقلت': 'Moved', 'نُقلت إلى': 'Moved to', 'نُقلت إلى وقت لاحق': 'Moved to a later time', 'لا فراغ كافٍ اليوم، تخطّاها أو أكّدها': 'No free time left today: skip or confirm it',
   'أُعيدت جدولة باقي اليوم': 'Rest of the day rescheduled', 'أعد جدولة باقي اليوم': 'Reschedule rest of day', 'أكّد ما بقي': 'Confirm the rest'
 };
-const _enKeys = Object.keys(EN).sort((a, b) => b.length - a.length);
-const _enRe = new RegExp('(?<![\\u0600-\\u06FF])(' + _enKeys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?![\\u0600-\\u06FF])', 'g');
+let _enRe; function _enBuild() { const _enKeys = Object.keys(EN).sort((a, b) => b.length - a.length);
+_enRe = new RegExp('(?<![\\u0600-\\u06FF])(' + _enKeys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?![\\u0600-\\u06FF])', 'g'); }
+_enBuild();
 const _ar = /[؀-ۿ]/;
-function trText(s) { return _ar.test(s) ? s.replace(_enRe, m => EN[m]) : s; }
+const _RULES = [
+  [/(\d+) من (\d+)/g, '$1 of $2'],
+  [/ما قيمة الرقم (\d+) في العدد (\d+)؟/g, 'What is the value of the digit $1 in $2?'],
+  [/ثمن (\d+) كتب هو (\d+) أوقية\. كم ثمن (\d+) كتب؟/g, '$1 books cost $2 MRU. How much do $3 books cost?'],
+  [/ما هو (\d+)% من (\d+)؟/g, 'What is $1% of $2?'],
+  [/حوّل (\d+) (كم|م|سم|كغ|غ|ساعة|دقيقة) إلى (كم|م|سم|كغ|غ|ساعة|دقيقة):/g, (m, v, a, b) => `Convert ${v} ${_U[a]} to ${_U[b]}:`],
+  [/ما قيمة العبارة عندما x = (\d+)؟/g, 'What is the value of the expression when x = $1?'],
+  [/مثلث فيه زاويتان (\d+)° و (\d+)°\. كم الزاوية الثالثة؟/g, 'A triangle has angles $1° and $2°. What is the third angle?'],
+  [/مستطيل طوله (\d+) وعرضه (\d+)\. ما (مساحته|محيطه)؟/g, (m, l, w, k) => `A rectangle is ${l} long and ${w} wide. What is its ${k === 'مساحته' ? 'area' : 'perimeter'}?`],
+  [/مثلث قائم ضلعاه (\d+) و (\d+)\. كم طول الوتر؟/g, 'A right triangle has legs $1 and $2. How long is the hypotenuse?'],
+  [/احسب \(دون تبسيط\):/g, 'Calculate (do not simplify):'], [/احسب:/g, 'Calculate:'], [/بسّط الكسر:/g, 'Simplify the fraction:'], [/أوجد x:/g, 'Solve for x:'], [/أي الكسور التالية أكبر قيمة؟/g, 'Which fraction is the largest?']
+];
+const _U = { 'كم': 'km', 'م': 'm', 'سم': 'cm', 'كغ': 'kg', 'غ': 'g', 'ساعة': 'hours', 'دقيقة': 'minutes' };
+function trText(s) { if (!_ar.test(s)) return s; for (const [re, rep] of _RULES) s = s.replace(re, rep); return _ar.test(s) ? s.replace(_enRe, m => EN[m]) : s; }
 function trTree(root) {
   if (LANG !== 'en' || !root) return;
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let n; const list = [];
