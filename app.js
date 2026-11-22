@@ -270,34 +270,54 @@ function healthProject(t) {
     daily: [{ id: uid(), t: 'شرب الماء (8 أكواب)' }, { id: uid(), t: 'مشي 20 دقيقة' }, { id: uid(), t: 'إطالة 5 دقائق قبل النوم' }]
   };
 }
-function defaultState(name, owner) {
+function defaultState(name) {
   const t = ymd(new Date(now().getTime() - 3 * 36e5));
-  const ALL = [0, 1, 2, 3, 4, 5, 6], P = [0, 10, 20, 30, 40, 50];
-  const r = (name, start, end, cat, w, al, x = {}) => ({ id: uid(), name, start, end, days: ALL.slice(), cat, w, al, ...x });
-  const subj = (id, name, sym, color) => ({ id, name, sym, color, lessons: id, goals: [], plan: [], refs: [], done: {}, review: {} });
   return {
-    v: 1, profile: { name, owner, quit: true, quitSet: 1 },
-    settings: { maxAuto: 120, reviewTime: '21:30', dayView: 'table', theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
-    routine: [
-      r('صلاة الفجر', '05:00', '06:00', 'prayer', 2, P), r('ورد القرآن', '06:00', '07:00', 'quran', 2, [0, 15]),
-      r('رياضيات', '07:30', '09:00', 'study', 3, [-5], { subject: 'math' }), r('الإنجليزية', '10:00', '11:30', 'study', 3, [-5], { subject: 'english' }),
-      r('صلاة الظهر', '13:30', '14:30', 'prayer', 2, P), r('صلاة العصر', '16:30', '17:30', 'prayer', 2, P),
-      r('الرياضة', '17:30', '18:15', 'sport', 2, [-10], { project: 'health' }), r('صلاة المغرب', '18:30', '19:30', 'prayer', 2, P),
-      r('صلاة العشاء', '20:00', '21:00', 'prayer', 2, P), r('النوم', '23:00', '06:00', 'sleep', 2, [-30, -20, -10, 0], { note: 'الهاتف خارج الغرفة' })
-    ],
-    extra: {}, log: {}, cele: {},
-    subjects: [subj('math', 'الرياضيات', 'π', 'indigo'), subj('physics', 'الفيزياء', 'F=ma', 'cyan'), subj('english', 'الإنجليزية', 'Aع', 'amber')],
-    projects: [healthProject(t)], library: [], exams: [],
+    v: 1, profile: { name, quit: false, quitSet: 1 },
+    settings: { maxAuto: 120, reviewTime: '21:30', dayView: 'table', theme: 'auto', dayStart: 3, autoFrom: 420, autoTo: 1320, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
+    routine: [], extra: {}, log: {}, cele: {}, subjects: [], projects: [], library: [], exams: [],
     quit: { start: t, relapses: [], urges: [] },
     health: { start: t, sessions: {}, sleep: {}, meals: {}, mealTimes: { b: '07:15', l: '14:45', d: '20:30' } },
-    lastLesson: null, todos: [], targets: [], plan: {}, reviews: {}, top3: {}
+    lastLesson: null, todos: [], targets: [], plan: {}, reviews: {}, top3: {}, flags: { plan1: 1, plan2: 1, uni1: 1, setup: 0 }
   };
+}
+// ================= الحزم الجاهزة =================
+const PACKS = {
+  prayer: ['الصلوات وورد القرآن', 'خمس صلوات وورد يومي، عدّل أوقاتها حسب مدينتك'],
+  sport: ['الصحة والرياضة', 'تمارين منزلية متوسطة وأهداف يومية وسجل نوم'],
+  math: ['الرياضيات من الصفر', '20 درساً مرتبة باختبارات، وخطة بالأشهر'],
+  english: ['الإنجليزية (A2 إلى B2)', '16 درساً باختبارات، وخطة بالأشهر'],
+  french: ['الفرنسية للمبتدئين', '16 درساً باختبارات، وخطة بالأشهر'],
+  physics: ['الفيزياء من الصفر', 'خطة بأهداف كبرى وخطوات، دون دروس']
+};
+const PACK_SUBJ = { math: ['الرياضيات', 'π', 'indigo', 4], physics: ['الفيزياء', 'F=ma', 'cyan', 3], english: ['الإنجليزية', 'Aع', 'amber', 3], french: ['الفرنسية', 'Fr', 'rose', 3] };
+function hasPack(id) { return id === 'prayer' ? S.routine.some(r => r.cat === 'prayer') : id === 'sport' ? S.projects.some(p => p.id === 'health') : S.subjects.some(x => x.id === id); }
+function applyPack(id) {
+  if (hasPack(id)) return false; const t = logicalToday(), ALL = [0, 1, 2, 3, 4, 5, 6], P = [0, 10, 20, 30, 40, 50];
+  const r = (name, start, end, cat, w, al, x = {}) => ({ id: uid(), name, start, end, days: ALL.slice(), cat, w, al, ...x });
+  if (id === 'prayer') S.routine.push(r('صلاة الفجر', '05:00', '06:00', 'prayer', 2, P), r('ورد القرآن', '06:00', '07:00', 'quran', 2, [0, 15]), r('صلاة الظهر', '13:30', '14:30', 'prayer', 2, P), r('صلاة العصر', '16:30', '17:30', 'prayer', 2, P), r('صلاة المغرب', '18:30', '19:30', 'prayer', 2, P), r('صلاة العشاء', '20:00', '21:00', 'prayer', 2, P));
+  else if (id === 'sport') { S.projects.push(healthProject(t)); S.routine.push(r('الرياضة', '17:30', '18:15', 'sport', 2, [-10], { project: 'health' })); }
+  else if (PACK_SUBJ[id]) { const [n, sym, color, hrs] = PACK_SUBJ[id];
+    const sb = { id, name: n, sym, color, lessons: LESSONS[id] ? id : null, goals: [], plan: [], cur: {}, written: [], uni: false, refs: [], done: {}, review: {} };
+    (PLAN_SEED[id] || []).forEach(([tt, mo, steps]) => sb.plan.push({ id: uid(), t: tt, seed: 1, res: PLAN_RES[tt] || [], due: mo ? monthEnd(mo) : '', steps: steps.map(x => ({ id: uid(), t: x, mins: 45, done: false })) }));
+    (REF_SEED[id] || []).forEach(x => sb.refs.push({ id: uid(), type: 'link', title: x.t, url: x.u, video: x.k === 'v', seed: 1 }));
+    S.subjects.push(sb); S.targets.push({ id: uid(), name: n, hours: hrs, prio: 2, subject: id }); }
+  delete S.plan[logicalToday()]; save(); return true;
+}
+function showSetup() {
+  const opt = (arr, sel) => arr.map(v => `<option value="${v}" ${v === sel ? 'selected' : ''}>${v}</option>`).join('');
+  sheet('أهلاً بك في MASAR', `<form data-f="saveSetup"><p class="muted" style="margin-top:0">أخبرنا عن يومك، وأضف ما يناسبك. كل شيء قابل للتعديل لاحقاً.</p>
+    <div class="two"><label class="field"><span>أستيقظ</span><select class="input" name="wake">${opt(['04:00', '04:30', '05:00', '05:30', '06:00', '06:30', '07:00', '07:30', '08:00', '09:00'], '06:00')}</select></label>
+    <label class="field"><span>أنام</span><select class="input" name="sleep">${opt(['21:00', '21:30', '22:00', '22:30', '23:00', '23:30', '00:00', '01:00'], '23:00')}</select></label></div>
+    <div class="field"><span>أضف حزماً جاهزة (اختياري)</span>${Object.entries(PACKS).map(([k, [n, d]]) => `<label class="list-row" style="gap:10px"><input type="checkbox" name="pack" value="${k}" ${hasPack(k) ? 'disabled' : ''}><span class="grow"><b>${esc(n)}</b><br><small class="muted">${esc(d)}</small></span>${hasPack(k) ? '<span class="tag ok">مضافة</span>' : ''}</label>`).join('')}</div>
+    <label class="field"><span>موادك الدراسية، كل مادة في سطر (اختياري)</span><textarea class="input" name="uni" rows="3" dir="auto" placeholder="مثال: التحليل 1"></textarea></label>
+    <button class="btn pri block" style="margin-top:12px">ابدأ</button><button type="button" class="btn block" style="margin-top:8px" data-a="skipSetup">تخطّي وابدأ فارغاً</button></form>`);
 }
 function migrate() {
   S.library ??= []; S.exams ??= []; S.todos ??= []; S.targets ??= []; S.plan ??= {}; S.reviews ??= {}; S.top3 ??= {}; S.settings.maxAuto ??= 120; S.settings.reviewTime ??= '21:30'; S.settings.dayView ??= 'table'; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
-  if (S.profile.quitSet === undefined) { S.profile.quit = true; S.profile.quitSet = 1; }
-  S.flags ??= {};
+  if (S.profile.quitSet === undefined) { S.profile.quit = false; S.profile.quitSet = 1; }
+  S.flags ??= {}; if (S.flags.setup === undefined) S.flags.setup = 1; S.settings.autoFrom ??= 420; S.settings.autoTo ??= 1320;
   S.subjects.forEach(s => { s.cur ??= {}; s.written ??= []; if (s.uni === undefined) s.uni = !['math', 'physics', 'english', 'french'].includes(s.id); s.plan ??= []; if (s.goals?.length) { s.plan.push({ id: uid(), t: 'أهداف سابقة', due: '', steps: s.goals.map(g => ({ id: g.id, t: g.t, mins: 60, done: !!g.done })) }); s.goals = []; } });
   if (!S.flags.plan1) {
     S.flags.plan1 = 1;
@@ -316,9 +336,7 @@ function migrate() {
   }
   if (S.settings.appName === 'مسار') S.settings.appName = 'MASAR';
 }
-let OWNER_ID = null; const OWNER_P = phoneId('38449637').then(x => OWNER_ID = x).catch(() => {});
-const isOwner = () => !!ACC && ACC === OWNER_ID;
-const quitOn = () => isOwner() && S.profile.quit !== false;
+const quitOn = () => !!S && S.profile.quit === true;
 const habitsOpen = () => (R.habitUntil || 0) > Date.now();
 
 // ================= منطق اليوم =================
@@ -349,7 +367,7 @@ function examTasks(date) {
 }
 function dailyItems() { const o = []; S.projects.forEach(p => { if (p.cards.some(c => c.type === 'daily')) (p.daily || []).forEach(it => o.push({ id: 'd:' + it.id, name: it.t, w: 1, project: p.id })); }); return o; }
 // ================= الجدولة الذكية =================
-const AUTO_FROM = 420, AUTO_TO = 1320;
+const autoFrom = () => S?.settings.autoFrom ?? 420, autoTo = () => S?.settings.autoTo ?? 1320;
 const nowLMin = () => { const d = now(); let m = d.getHours() * 60 + d.getMinutes(); if (ymd(d) !== logicalToday()) m += 1440; return m; };
 const bMins = b => durMin(b.start, b.end);
 function refDone(ref, from, to) { let m = 0; for (const [d, bl] of Object.entries(S.plan)) { if ((from && d < from) || (to && d > to)) continue; const L = S.log[d] || {}; for (const b of bl) if (b.ref === ref && L[b.id]?.s === 'done') m += bMins(b); } return m; }
@@ -367,9 +385,9 @@ function targetWeek(tg, date) {
   return { ws, we, done, goal: Math.round(tg.hours * 60) };
 }
 function freeGaps(date, from, extra) {
-  const busy = busyOn(date, extra).map(([a, b]) => [a - 5, b + 5]).sort((x, y) => x[0] - y[0]); const gaps = []; let t = Math.max(from, AUTO_FROM);
-  for (const [a, b] of busy) { if (b <= t) continue; if (a > t) gaps.push([t, Math.min(a, AUTO_TO)]); t = Math.max(t, b); if (t >= AUTO_TO) break; }
-  if (t < AUTO_TO) gaps.push([t, AUTO_TO]); return gaps.filter(([a, b]) => b - a >= 25);
+  const busy = busyOn(date, extra).map(([a, b]) => [a - 5, b + 5]).sort((x, y) => x[0] - y[0]); const gaps = []; let t = Math.max(from, autoFrom());
+  for (const [a, b] of busy) { if (b <= t) continue; if (a > t) gaps.push([t, Math.min(a, autoTo())]); t = Math.max(t, b); if (t >= autoTo()) break; }
+  if (t < autoTo()) gaps.push([t, autoTo()]); return gaps.filter(([a, b]) => b - a >= 25);
 }
 function demands(date, carry) {
   const out = [], today = logicalToday(), top = S.top3?.[date] || [];
@@ -526,7 +544,7 @@ function render(top) {
   $('.tb-start').innerHTML = isRoot ? '' : `<button class="icon-btn press" data-a="back" aria-label="رجوع">${ic('back')}</button>`;
   $('.tb-end').innerHTML = `${out.plus ? `<button class="plus-btn press" data-a="${out.plus}" aria-label="إضافة">${ic('plus')}</button>` : ''}<button class="icon-btn press" data-a="theme" aria-label="الوضع">${ic(isDark() ? 'sun' : 'moon')}</button>`;
   $('#view').innerHTML = out.html;
-  $$('#tabbar .tab').forEach(b => b.classList.toggle('on', b.dataset.t === R.tab));
+  $$('#tabbar .tab').forEach(b => b.classList.toggle('on', b.dataset.t === (R.tab === 'projects' ? 'plan' : R.tab)));
   if (top) { scrollTo(0, 0); $('#topbar').classList.remove('hide'); }
   R.lastRender = Date.now(); out.after?.();
 }
@@ -534,16 +552,32 @@ function isDark() { const t = S?.settings.theme; return t === 'dark' || (t !== '
 function applyTheme() { const t = S?.settings.theme || 'auto'; if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; $('meta[name=theme-color]')?.setAttribute('content', isDark() ? '#000000' : '#F4F5F9'); }
 
 // ---------- اليوم ----------
+function lateTasks(date) { if (date !== logicalToday()) return []; const nm = nowLMin(), L = S.log[date] || {}; return dayTasks(date).filter(t => !t.preview && t.cat !== 'sleep' && !L[t.id] && sortKey(t.start) + bMins(t) <= nm); }
+function lateListHtml(list) {
+  return list.map(t => `<div class="late-row"><div class="grow" style="min-width:0"><b dir="auto">${esc(t.name)}</b><br><small class="muted ltr">${t.start}–${t.end}</small></div><div class="l3"><button class="btn sm ok press" data-a="lateDone" data-id="${t.id}">تمّت</button>${t.cat === 'prayer' ? '' : `<button class="btn sm press" data-a="latePost" data-id="${t.id}">أجّلها</button>`}<button class="btn sm bad press" data-a="lateSkip" data-id="${t.id}">تخطّاها</button></div></div>`).join('');
+}
+function showLate() { R.lateOpen = true; const l = lateTasks(logicalToday()); if (!l.length) return; sheet('مهام فات وقتها', `<p class="muted" style="margin-top:0">هل فعلتها؟ أكّد ليصحّ حساب يومك.</p>${lateListHtml(l)}<button class="btn block" style="margin-top:12px" data-a="closeSheet">لاحقاً</button>`); }
+function afterLate() { render(); const left = lateTasks(logicalToday()); if (R.lateOpen) { if (left.length) showLate(); else { closeSheet(); R.lateOpen = false; toast('كل شيء مؤكَّد، أحسنت', 'ok'); } } checkDayComplete(logicalToday()); }
+function maybeLate() { if (!S || !$('#auth').hidden || SHEET) return; if (R.tab !== 'today' || R.stack.length || R.day) return; if (!lateTasks(logicalToday()).length) return; if (Date.now() - (R.lateAt || 0) < 10 * 60e3) return; R.lateAt = Date.now(); showLate(); }
+const planSeg = on => `<div class="seg"><button class="${on === 'plan' ? 'on' : ''}" data-a="tab" data-t="plan">الروتين الأسبوعي</button><button class="${on === 'projects' ? 'on' : ''}" data-a="tab" data-t="projects">المشاريع</button></div>`;
 VIEWS.today = () => {
   const today = logicalToday(), date = R.day || today, d = parseYmd(date), st = dayStats(date), L = S.log[date] || {};
   const nm = date === today ? nowLMin() : null, view = S.settings.dayView || 'table';
-  let prevEnd = -1, rows = '';
+  const isToday = date === today, late = isToday ? lateTasks(date) : [], lateIds = new Set(late.map(t => t.id));
+  const PN = ['الصباح', 'بعد الظهر', 'المساء', 'الليل'], periodOf = t => { const a = sortKey(t.start); return a < 720 ? 0 : a < 960 ? 1 : a < 1260 ? 2 : 3; };
+  const groups = [[], [], [], []], doneRows = []; let prevEnd = -1;
   for (const t of st.tasks) {
     const e = L[t.id], a = sortKey(t.start), b = a + durMin(t.start, t.end), overlap = a < prevEnd; prevEnd = Math.max(prevEnd, b);
+    if (lateIds.has(t.id)) continue;
     const isNow = nm != null && a <= nm && nm < b;
     const sub = e?.s === 'miss' ? `<small class="bad-tx">${esc(e.r)}${e.ex ? ' · مستثناة' : ''}</small>` : overlap ? `<small class="warn-tx">تتداخل مع ما قبلها</small>` : t.subtxt ? `<small class="${t.src === 'a' ? 'pri-tx' : ''}">${esc(t.subtxt)}</small>` : isNow ? `<small class="pri-tx">الآن</small>` : '';
-    rows += `<div class="tr ${e?.s === 'done' ? 'is-done' : ''} ${isNow ? 'is-now' : ''} ${t.src === 'a' ? 'is-auto' : ''}"><button class="tn" data-a="openTask" data-id="${t.id}"><i class="cat cat-${t.cat}"></i><span><b>${esc(t.name)}</b>${sub}</span></button><div class="td">${fmtDur(durMin(t.start, t.end))}</div><div class="tt">${t.start}–${t.end}</div><div class="ta">${t.preview ? '<span class="tag pri">مقترح</span>' : `<button class="mini ok press ${e?.s === 'done' ? 'on' : ''} ${!e && !canConfirm(date, t.id) ? 'locked' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button><button class="mini no press ${e?.s === 'miss' ? 'on' : ''}" data-a="miss" data-id="${t.id}" aria-label="لم أفعل">${ic('x')}</button>`}</div></div>`;
+    const row = `<div class="tr ${e?.s === 'done' ? 'is-done' : ''} ${isNow ? 'is-now' : ''} ${t.src === 'a' ? 'is-auto' : ''} ${t.cat === 'prayer' ? 'compact' : ''}"><button class="tn" data-a="openTask" data-id="${t.id}"><i class="cat cat-${t.cat}"></i><span><b>${t.top ? '★ ' : ''}${esc(t.name)}</b>${sub}</span></button><div class="tt">${t.start}–${t.end}</div><div class="ta">${t.preview ? '<span class="tag pri">مقترح</span>' : `<button class="mini ok press ${e?.s === 'done' ? 'on' : ''} ${!e && !canConfirm(date, t.id) ? 'locked' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button><button class="kebab press" data-a="rowMenu" data-id="${t.id}" aria-label="المزيد">⋮</button>`}</div></div>`;
+    if (isToday && (e?.s === 'done' || e?.ex)) doneRows.push(row); else groups[periodOf(t)].push(row);
   }
+  const rows = groups.map((g, i) => g.length ? `<div class="grp">${PN[i]}</div>${g.join('')}` : '').join('') + (doneRows.length ? `<button class="done-fold press" data-a="toggleDone">${R.showDone ? '▲' : '▼'} منتهية (${doneRows.length})</button>${R.showDone ? doneRows.join('') : ''}` : '');
+  const lateCard = late.length ? `<div class="card late-card"><h3>فات وقتها (${late.length})</h3><p class="muted" style="margin:-4px 0 6px;font-size:13px">هل فعلتها؟ أكّد ليصحّ حساب يومك.</p>${lateListHtml(late)}</div>` : '';
+  const top = isToday ? st.tasks.filter(t => t.top && !lateIds.has(t.id)) : [];
+  const topCard = top.length ? `<div class="card"><h3>★ أهم مهام اليوم</h3>${top.map(t => `<div class="list-row"><span class="grow ${L[t.id]?.s === 'done' ? 'muted' : ''}"><b dir="auto">${esc(t.name)}</b><br><small class="muted ltr">${t.start}–${t.end}</small></span>${L[t.id]?.s === 'done' ? '<span class="tag ok">تم</span>' : `<button class="mini ok press ${!canConfirm(date, t.id) ? 'locked' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button>`}</div>`).join('')}</div>` : '';
   const daily = st.daily.length ? `<div class="card"><h3>أهداف الصحة اليومية</h3>${st.daily.map(it => { const on = L[it.id]?.s === 'done'; return `<div class="list-row"><button class="chk press ${on ? 'on' : ''}" data-a="toggleDaily" data-id="${it.id}" aria-label="تم">${ic('check')}</button><span class="grow">${esc(it.name)}</span></div>`; }).join('')}</div>` : '';
   const q = quitOn() ? quitInfo() : null;
   const backupDue = !S.settings.lastBackup || daysBetween(S.settings.lastBackup, today) >= 7;
@@ -564,26 +598,22 @@ VIEWS.today = () => {
     <div class="day-head"><div class="grow"><div class="dow">${DOW[d.getDay()]}</div><div class="dates">${fmtGreg(d)} · ${fmtHijri(d)}</div>
       <div class="day-nav"><button class="pill press" data-a="dayShift" data-n="-1">${ic('prev')}السابق</button>${date !== today ? `<button class="pill on press" data-a="dayShift" data-n="0">اليوم</button>` : ''}<button class="pill press" data-a="dayShift" data-n="1">التالي${ic('next')}</button></div></div>
       ${ring(st.pct, 78, 8)}</div>
-    ${(() => { const rem = [...st.tasks, ...st.daily].filter(t => { const e = L[t.id]; return e?.s !== 'done' && !e?.ex && !t.preview; }); return rem.length && st.pct < 100 ? `<div class="note">يُحسب في النسبة ولم يُؤكَّد بعد: ${rem.slice(0, 4).map(t => esc(t.name)).join('، ')}${rem.length > 4 ? ' و' + (rem.length - 4) + ' أخرى' : ''}</div>` : ''; })()}
     ${evening || pastNoReview ? `<button class="card row press evening-cta" style="width:100%;text-align:right" data-a="goEvening" data-date="${date}"><span class="sym sm c-violet">${ic('moon')}</span><div class="grow"><b>مراجعة اليوم وتخطيط الغد</b><div class="muted" style="font-size:13px">دقيقتان: ما أنجزت، وأهم 3 مهام لغدك</div></div>${ic('chev')}</button>` : ''}
-    ${nowNext}
-    <div class="seg"><button class="${view === 'table' ? 'on' : ''}" data-a="dayView" data-v="table">الجدول</button><button class="${view === 'line' ? 'on' : ''}" data-a="dayView" data-v="line">الخط الزمني</button></div>
-    ${view === 'line' ? timelineHtml(date, st.tasks, L, nm) : `<div class="card ttable"><div class="th"><span>المهمة</span><span style="text-align:center">المدة</span><span style="text-align:center">من – إلى</span><span></span></div>${rows || '<div class="empty">لا مهام في هذا اليوم</div>'}
-      <div class="btns"><button class="add-row press" style="margin:0" data-a="addExtra">${ic('plus')} بوقت محدد</button><button class="add-row press" style="margin:0" data-a="addTodo">${ic('sparkle')} مرنة</button></div></div>`}
-    <div class="note" style="margin:-4px 2px 14px">مخطط ${fmtDur(st.planned)} · أنجزت ${fmtDur(st.doneMins)}</div>
+    ${nowNext}${lateCard}${topCard}
+        ${view === 'line' ? timelineHtml(date, st.tasks, L, nm) : `<div class="card ttable">${rows || '<div class="empty">لا مهام في هذا اليوم</div>'}
+</div>`}
+    <div class="sumline"><span>مخطط ${fmtDur(st.planned)} · أنجزت ${fmtDur(st.doneMins)}</span><button class="pill press" data-a="dayView" data-v="${view === 'line' ? 'table' : 'line'}">${view === 'line' ? 'عرض الجدول' : 'الخط الزمني'}</button></div>
     ${daily}
     ${q ? `<button class="big press" data-a="goQuit"><div class="row"><span class="sym c-violet">${ic('lock')}</span><div class="grow"><h4>عادتي</h4><p>مقفل · افتحه بـ Face ID</p></div>${ic('chev')}</div></button>` : ''}
-    <div class="card row"><span class="sym sm c-amber">${ic('sparkle')}</span><div class="grow"><b style="font-size:13px" class="muted">نصيحة اليوم</b><div style="font-size:15px">${esc(tip)}</div></div></div>
-    ${!TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="enableSync"><span class="sym sm c-cyan">${ic('upload')}</span><div class="grow"><b>فعّل المزامنة السحابية</b><div class="muted" style="font-size:13px">لتدخل من أي هاتف ولا تضيع بياناتك عند الحذف</div></div></button>` : ''}
-    ${backupDue && !TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="exportBackup"><span class="sym sm c-slate">${ic('download')}</span><div class="grow"><b>حان وقت النسخة الاحتياطية</b><div class="muted" style="font-size:13px">احفظ نسخة مشفّرة في «الملفات» حتى لا تضيع بياناتك</div></div></button>` : ''}`
+    ${(!TOKEN && backupDue) ? `<button class="note press" style="width:100%;text-align:right" data-a="goSettings">احفظ نسخة احتياطية أو فعّل المزامنة من «الإعدادات» حتى لا تضيع بياناتك ›</button>` : ''}`
   };
 };
 function timelineHtml(date, tasks, L, nm) {
   const K = 1.1, from = 300, to = 1440, H = (to - from) * K, today = logicalToday();
   const items = tasks.map(t => { const a = Math.max(from, sortKey(t.start)), b = Math.min(to, sortKey(t.start) + bMins(t)); return { t, a, b }; }).filter(x => x.b > x.a);
   let hours = ''; for (let h = 5; h <= 24; h++) hours += `<div class="tl-h" style="top:${(h * 60 - from) * K}px"><span>${pad(h % 24)}:00</span></div>`;
-  const busy = items.map(x => [x.a, x.b]).sort((p, q) => p[0] - q[0]); let gaps = '', c = date === today ? Math.max(AUTO_FROM, nm) : AUTO_FROM;
-  for (const [a, b] of [...busy, [AUTO_TO, AUTO_TO]]) { const e = Math.min(a, AUTO_TO); if (e - c >= 30) gaps += `<button class="tl-gap press" style="top:${(c - from) * K + 2}px;height:${(e - c) * K - 4}px" data-a="addInGap" data-s="${fromMin(c)}" data-e="${fromMin(e)}">${ic('plus')} فراغ ${fmtDur(e - c)}</button>`; c = Math.max(c, b); }
+  const busy = items.map(x => [x.a, x.b]).sort((p, q) => p[0] - q[0]); let gaps = '', c = date === today ? Math.max(autoFrom(), nm) : autoFrom();
+  for (const [a, b] of [...busy, [autoTo(), autoTo()]]) { const e = Math.min(a, autoTo()); if (e - c >= 30) gaps += `<button class="tl-gap press" style="top:${(c - from) * K + 2}px;height:${(e - c) * K - 4}px" data-a="addInGap" data-s="${fromMin(c)}" data-e="${fromMin(e)}">${ic('plus')} فراغ ${fmtDur(e - c)}</button>`; c = Math.max(c, b); }
   const blocks = items.map(({ t, a, b }) => { const e = L[t.id]; return `<div class="tl-b cat-bg-${t.cat} ${e?.s === 'done' ? 'done' : ''} ${e?.s === 'miss' ? 'miss' : ''} ${t.src === 'a' ? 'auto' : ''}" style="top:${(a - from) * K + 1}px;height:${Math.max(22, (b - a) * K - 2)}px"><button class="tl-t" data-a="openTask" data-id="${t.id}"><b>${esc(t.name)}</b><small>${t.start}–${t.end}</small></button>${t.preview ? '' : `<button class="tl-ok press" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button>`}</div>`; }).join('');
   const nowLine = nm != null && nm >= from && nm <= to ? `<div class="tl-now" style="top:${(nm - from) * K}px"><span>${fromMin(nm)}</span></div>` : '';
   return `<div class="card tl" style="height:${H + 24}px"><div class="tl-in" style="height:${H}px">${hours}${gaps}${blocks}${nowLine}</div></div>`;
@@ -622,11 +652,11 @@ function uniHtml() {
 }
 VIEWS.lessons = () => {
   const today = logicalToday(), f = R.sub.lf || 'all';
-  const tabs = [['all', 'الكل'], ['math', 'الرياضيات'], ['english', 'الإنجليزية'], ['french', 'الفرنسية'], ['uni', 'المواد الجامعية']];
+  const tabs = [['all', 'الكل'], ...S.subjects.filter(x => !x.uni).map(x => [x.id, x.name]), ['uni', 'المواد الجامعية']];
   const fbar = `<div class="fbar">${tabs.map(([k, l]) => `<button class="pill press ${f === k ? 'on' : ''}" data-a="lessonFilter" data-v="${k}">${l}</button>`).join('')}</div>`;
   let body = '';
   if (f === 'uni') body = uniHtml();
-  else if (f !== 'all' && S.subjects.find(x => x.id === f) && currOf(S.subjects.find(x => x.id === f)).length) body = currHtml(S.subjects.find(x => x.id === f));
+  else if (f !== 'all' && S.subjects.find(x => x.id === f)) { const sb = S.subjects.find(x => x.id === f); body = currOf(sb).length ? currHtml(sb) : `<button class="big press" data-a="openSubject" data-id="${sb.id}"><div class="row">${symHtml(sb.sym, sb.color)}<div class="grow"><h4>${esc(sb.name)}</h4><p>${planLine(sb, [], 0)}</p></div><span class="pct">${subjectPct(sb)}%</span></div>${bar(subjectPct(sb))}</button>`; }
   else {
     const due = []; S.subjects.forEach(s => Object.entries(s.review || {}).forEach(([lid, r]) => { if (r.next <= today) due.push([s, lid]); }));
     const last = S.lastLesson && S.subjects.find(s => s.id === S.lastLesson.s);
@@ -737,7 +767,7 @@ function refRow(kind, id, r, src) {
 // ---------- المشاريع ----------
 VIEWS.projects = () => ({
   title: 'المشاريع', plus: 'newProject',
-  html: S.projects.map(p => { const pc = projectPct(p), m = p.cards.some(c => c.type === 'money') ? moneyCalc(p.money) : null;
+  html: planSeg('projects') + (S.projects.length ? '' : '<div class="card empty">لا مشاريع بعد. اضغط + لإنشاء مشروعك الأول.</div>') + S.projects.map(p => { const pc = projectPct(p), m = p.cards.some(c => c.type === 'money') ? moneyCalc(p.money) : null;
     return `<button class="big press" data-a="openProject" data-id="${p.id}"><div class="row">${symHtml(p.sym, p.color)}<div class="grow"><h4>${esc(p.name)}</h4><p>${esc(p.desc || '')}</p>${m ? `<p class="${m.net < 0 ? 'bad-tx' : 'ok-tx'}" style="font-weight:800">الصافي ${money(m.net)}</p>` : ''}</div>${pc != null ? `<span class="pct">${pc}%</span>` : ''}</div>${pc != null ? bar(pc) : ''}</button>`; }).join('') + `<button class="add-row press" data-a="newProject">${ic('plus')} مشروع جديد</button>`
 });
 const CARD_T = { goals: 'الأهداف', milestones: 'الخطط والمراحل', money: 'المال', refs: 'المراجع', notes: 'ملاحظات', deadline: 'الموعد النهائي', daily: 'أهداف يومية', workout: 'التمارين', meals: 'الوجبات', sleep: 'النوم' };
@@ -831,7 +861,7 @@ VIEWS.plan = () => {
   const sm = weekSummary(today);
   return {
     title: 'الخطة', plus: 'addRoutine',
-    html: `<div class="seg">${WEEK.map(d => `<button class="${d === wd ? 'on' : ''}" data-a="planDay" data-d="${d}">${DOW_S[d]}</button>`).join('')}</div>
+    html: `${planSeg('plan')}<div class="seg">${WEEK.map(d => `<button class="${d === wd ? 'on' : ''}" data-a="planDay" data-d="${d}">${DOW_S[d]}</button>`).join('')}</div>
     <div class="card"><div class="row" style="margin-bottom:6px"><h3 class="grow" style="margin:0">${DOW[wd]}</h3><span class="tag pri">دراسة ${fmtDur(studyMin)}</span></div>
     ${items.map(t => `<button class="list-row press" style="width:100%;text-align:right" ${t.src === 'r' ? `data-a="editRoutine" data-id="${t.id}"` : ''}><i class="cat cat-${t.cat}"></i><span class="grow"><b>${esc(t.name)}</b><br><small class="muted">${t.cat === 'sport' ? workoutName(date) : t.subtxt ? esc(t.subtxt) : CATS[t.cat] || ''}${t.al?.length ? ' · ' + t.al.length + ' تذكير' : ''}</small></span><span class="tt">${t.start} – ${t.end}</span></button>`).join('') || '<div class="empty">لا شيء في هذا اليوم</div>'}
     <button class="add-row press" data-a="addRoutine">${ic('plus')} أضف إلى الروتين</button></div>
@@ -916,10 +946,9 @@ VIEWS.more = () => {
     title: 'المزيد',
     html: `<div class="card row"><span class="sym c-indigo" style="font-family:inherit">${esc((S.profile.name || 'م').trim()[0] || 'م')}</span><div class="grow"><h3 style="margin:0">${esc(S.profile.name || 'حسابي')}</h3><small class="muted" id="syncState">${syncLabel()}</small></div></div>
     <div class="sec-h">الأدوات</div><div class="card"><div class="grid4">
-      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${T('goHealth', 'dumbbell', 'الصحة', 'teal')}${quitOn() ? T('goQuit', 'shield', 'عادتي', 'violet') : ''}
-      ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('exportIcs', 'bell', 'التذكيرات', 'rose')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}${T('exportBackup', 'download', 'نسخة احتياطية', 'slate')}
+      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${S.projects.some(p => p.id === 'health') ? T('goHealth', 'dumbbell', 'الصحة', 'teal') : ''}${quitOn() ? T('goQuit', 'shield', 'عادتي', 'violet') : ''}
+      ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}
     </div></div>
-    <button class="btn bad block" style="margin-top:8px" data-a="logout">${ic('logout')} تسجيل الخروج</button>
     <p class="faint" style="text-align:center;font-size:12px;margin-top:18px">${esc(S.settings.appName)} · النسخة 1</p>`
   };
 };
@@ -952,14 +981,18 @@ VIEWS.settings = () => ({
     <label class="field"><span>العملة</span><input class="input" name="currency" value="${esc(S.settings.currency)}"></label>
     <label class="field"><span>يبدأ اليوم الجديد عند الساعة</span><select class="input" name="dayStart">${[0, 1, 2, 3, 4, 5].map(h => `<option value="${h}" ${S.settings.dayStart === h ? 'selected' : ''}>${pad(h)}:00${h === 3 ? ' (مناسب للسهر)' : ''}</option>`).join('')}</select></label>
     <div class="two"><label class="field"><span>أقصى وقت للجدولة التلقائية يومياً</span><select class="input" name="maxAuto">${[0, 60, 90, 120, 180, 240].map(m => `<option value="${m}" ${S.settings.maxAuto === m ? 'selected' : ''}>${m ? fmtDur(m) : 'إيقاف'}</option>`).join('')}</select></label><label class="field"><span>وقت مراجعة المساء</span><input class="input" type="time" name="reviewTime" value="${S.settings.reviewTime}"></label></div>
-    ${isOwner() ? sw('إظهار قسم عادتي', 'name="quit"', S.profile.quit !== false) : ''}
+    <div class="two"><label class="field"><span>الجدولة التلقائية من</span><select class="input" name="autoFrom">${[360, 390, 420, 450, 480, 540, 600].map(m => `<option value="${m}" ${S.settings.autoFrom === m ? 'selected' : ''}>${fromMin(m)}</option>`).join('')}</select></label><label class="field"><span>إلى</span><select class="input" name="autoTo">${[1200, 1260, 1320, 1380, 1440].map(m => `<option value="${m}" ${S.settings.autoTo === m ? 'selected' : ''}>${fromMin(m % 1440)}</option>`).join('')}</select></label></div>
+    ${sw('تفعيل قسم «عادتي» الخاص (يُقفل بـ Face ID)', 'name="quit"', quitOn())}
     <button class="btn pri block">حفظ</button></form>
+    <div class="card"><h3>الحزم الجاهزة</h3><div class="note" style="margin-top:0">أضف روتيناً أو مادة جاهزة (مناهج واختبارات) إلى حسابك متى شئت.</div><button class="btn block" data-a="showSetupBtn">فتح الإعداد والحزم</button></div>
     <div class="card"><h3>الأمان والبيانات</h3>
     ${sw('قفل بـ Face ID', 'data-c="bioToggle"', !!accounts()[ACC]?.bio)}<div class="note" style="margin-top:0">يُطلب عند فتح التطبيق وبعد دقيقة من تركه.</div>
     <button class="list-row press" style="width:100%;text-align:right" data-a="changePw">${ic('lock')}<span class="grow">تغيير كلمة السر</span></button>
     <button class="list-row press" style="width:100%;text-align:right" data-a="exportBackup">${ic('download')}<span class="grow">تصدير نسخة احتياطية مشفّرة</span></button>
     <label class="list-row press" style="cursor:pointer">${ic('upload')}<span class="grow">استيراد نسخة احتياطية</span><input type="file" hidden accept=".json,application/json" data-c="importBackup"></label>
     <div class="note">النسخة الاحتياطية تشمل كل بياناتك مشفّرة بكلمة سرك، ولا تشمل ملفات PDF والفيديو (احتفظ بها في «الملفات»).</div></div>
+    <button class="list-row press" style="width:100%;text-align:right" data-a="exportIcs">${ic('bell')}<span class="grow">تصدير التذكيرات إلى التقويم</span></button>
+    <button class="list-row press" style="width:100%;text-align:right" data-a="logout">${ic('logout')}<span class="grow">تسجيل الخروج</span></button>
     <button class="btn bad block" data-a="wipe">${ic('trash')} حذف كل بيانات الحساب من الجهاز</button>`
 });
 
@@ -1010,7 +1043,20 @@ function readTask(fd, isRoutine) {
 
 // ================= الإجراءات =================
 const A = {
-  back, closeSheet: () => closeSheet(),
+  back, closeSheet: () => { R.lateOpen = false; closeSheet(); },
+  skipSetup: () => { S.flags.setup = 1; save(); closeSheet(); },
+  showSetupBtn: () => showSetup(),
+  toggleDone: () => { R.showDone = !R.showDone; render(); },
+  rowMenu: d => { const date = R.day || logicalToday(), t = dayTasks(date).find(x => x.id === d.id); if (!t) return; const e = (S.log[date] || {})[t.id];
+    sheet(t.name, `<div class="stack-btns">${e?.s === 'miss' ? `<button class="btn block" data-a="miss" data-id="${t.id}">إلغاء «لم أفعلها»</button>` : `<button class="btn bad block" data-a="miss" data-id="${t.id}">لم أفعلها</button>`}${date === logicalToday() && t.cat !== 'prayer' && !t.preview && !e ? `<button class="btn block" data-a="postponeAny" data-id="${t.id}">أجّلها إلى وقت لاحق</button>` : ''}<button class="btn block" data-a="openTask" data-id="${t.id}">تعديل أو تفاصيل</button></div>`); },
+  postponeAny: d => { closeSheet(); A.latePost(d, true); },
+  lateDone: d => { setLog(logicalToday(), d.id, { s: 'done', t: Date.now() }); afterLate(); },
+  lateSkip: d => { setLog(logicalToday(), d.id, { s: 'miss', r: 'لم يتم', t: Date.now() }); afterLate(); },
+  latePost: (d, direct) => { const date = logicalToday(), t = dayTasks(date).find(x => x.id === d.id); if (!t) return;
+    if (t.src === 'a') { const blk = (S.plan[date] || []).find(b => b.id === d.id); setLog(date, d.id, { s: 'miss', r: 'أجّلتها', ex: true, t: Date.now() }); replanToday(); toast(blk ? 'نُقلت إلى وقت لاحق' : 'نُقلت', 'ok'); return direct ? render() : afterLate(); }
+    const dur = bMins(t), slot = findSlot(date, dur, [], Math.max(420, Math.ceil(nowLMin() / 15) * 15)); if (slot == null) return toast('لا فراغ كافٍ اليوم، تخطّاها أو أكّدها', 'bad');
+    (S.extra[date] ||= []).push({ id: uid(), name: t.name, start: fromMin(slot), end: fromMin(slot + dur), cat: t.cat, w: t.w || 2, subject: t.subject, project: t.project });
+    setLog(date, t.id, { s: 'miss', r: 'أجّلتها', ex: true, t: Date.now() }); toast(`نُقلت إلى ${fromMin(slot)}`, 'ok'); direct ? render() : afterLate(); },
   tab: d => setTab(d.t),
   theme: () => { S.settings.theme = isDark() ? 'light' : 'dark'; applyTheme(); save(); render(); },
   dayShift: d => { const n = +d.n; R.day = n === 0 ? null : addDays(R.day || logicalToday(), n); if (R.day === logicalToday()) R.day = null; render(); },
@@ -1022,7 +1068,7 @@ const A = {
   },
   miss: d => {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
-    if (e?.s === 'miss') { setLog(date, d.id, null); render(); return; }
+    if (e?.s === 'miss') { setLog(date, d.id, null); closeSheet(); render(); return; }
     const reasons = ['تعب', 'نسيت', 'المهمة صعبة', 'وقت غير كافٍ', ...(quitOn() ? ['رغبة أو انتكاسة'] : []), 'مرض أو عذر', 'سبب آخر'];
     sheet('لماذا لم تُنجزها؟', `<form data-f="saveMiss" data-id="${d.id}" data-date="${date}">${chipsHtml('r', reasons.map(r => [r, r]), '')}<label class="field" style="margin-top:12px"><span>تفاصيل (اختياري)</span><input class="input" name="note" placeholder="ما الذي حدث؟"></label><div class="note">«مرض أو عذر» لا يُحسب ضدك في النسبة.</div><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`);
   },
@@ -1034,7 +1080,7 @@ const A = {
       <div class="btns">${t.subject ? `<button class="btn" data-a="openSubject" data-id="${t.subject}">افتح المادة</button>` : ''}${t.project ? `<button class="btn" data-a="openProject" data-id="${t.project}">افتح المشروع</button>` : ''}${!t.preview && date === logicalToday() ? `<button class="btn" data-a="postpone" data-id="${t.id}">أجّلها</button>` : ''}</div>`); }
     if (t.cat === 'sport') return go('workout');
     if (t.subject && (t.cat === 'study' || t.cat === 'exam')) return go('subject', { id: t.subject });
-    if (t.cat === 'sleep') return go('project', { id: 'health' });
+    if (t.cat === 'sleep' && S.projects.some(p => p.id === 'health')) return go('project', { id: 'health' });
     if (t.src === 'r') return A.editRoutine({ id: t.id });
     if (t.src === 'x') sheet('تعديل المهمة', `<form data-f="saveExtra" data-id="${t.id}" data-date="${date}">${taskFormHtml(t)}<div class="btns"><button type="button" class="btn bad" data-a="delExtra" data-id="${t.id}" data-date="${date}">حذف</button><button class="btn pri">حفظ</button></div></form>`);
   },
@@ -1258,6 +1304,12 @@ const F = {
   saveLessonNote: (fd, f) => { const s = S.subjects.find(x => x.id === f.dataset.s); (s.cur[f.dataset.id] ||= {}).note = fd.get('n').trim(); save(); closeSheet(); render(); toast('حُفظت ملاحظتك', 'ok'); },
   saveLessonUrl: (fd, f) => { const u = fd.get('u').trim(), s = S.subjects.find(x => x.id === f.dataset.s); if (u && !/^https?:\/\//i.test(u)) return toast('الرابط يجب أن يبدأ بـ https://', 'bad'); const e = (s.cur[f.dataset.id] ||= {}); if (u) e.url = u; else delete e.url; save(); closeSheet(); render(); },
   saveWritten: (fd, f) => { const s = S.subjects.find(x => x.id === f.dataset.s); if (f.dataset.id) { const w = s.written.find(x => x.id === f.dataset.id); w.t = fd.get('t').trim(); w.b = fd.get('b'); } else s.written.unshift({ id: uid(), t: fd.get('t').trim(), b: fd.get('b'), d: logicalToday() }); save(); closeSheet(); render(); },
+  saveSetup: (fd) => { const wake = fd.get('wake'), sl = fd.get('sleep'); let sm = toMin(sl); if (sm < 720) sm += 1440;
+    if (!S.routine.some(r => r.cat === 'sleep')) S.routine.push({ id: uid(), name: 'النوم', start: sl, end: wake, days: [0, 1, 2, 3, 4, 5, 6], cat: 'sleep', w: 2, al: [-30, -20, -10, 0], note: 'الهاتف خارج الغرفة' });
+    S.settings.autoFrom = toMin(wake) + 60; S.settings.autoTo = Math.min(1440, sm - 60);
+    fd.getAll('pack').forEach(applyPack);
+    (fd.get('uni') || '').split('\n').map(x => x.trim()).filter(Boolean).forEach((n, i) => S.subjects.push({ id: uid(), name: n, sym: n[0], color: COLORS[(i + 3) % COLORS.length], lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }));
+    S.flags.setup = 1; delete S.plan[logicalToday()]; save(); closeSheet(); R.stack = []; R.tab = 'today'; render(true); toast('تم الإعداد، عدّل أي شيء من «الخطة» و«الإعدادات»', 'ok'); },
   saveSubject: fd => { const name = fd.get('name').trim(); S.subjects.push({ id: uid(), name, sym: fd.get('sym').trim() || name[0], color: fd.get('color') || 'violet', lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }); R.sub.lf = 'uni'; save(); closeSheet(); render(true); },
   addGoal: (fd, f) => { const o = ownerOf(f.dataset.k, f.dataset.o); const before = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); o.goals.push({ id: uid(), t: fd.get('t').trim(), w: +fd.get('w'), done: false }); save(); const after = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); render(); if (before != null && before !== after) toast(`كانت ${before}% وصارت ${after}% بعد إضافة الهدف`); },
   addMs: (fd, f) => { S.projects.find(x => x.id === f.dataset.p).milestones.push({ id: uid(), t: fd.get('t').trim(), date: fd.get('date') || '', done: false }); save(); render(); },
@@ -1277,7 +1329,7 @@ const F = {
   saveRelapse: fd => { const reason = fd.get('reason') || 'غير محدد'; S.quit.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
   savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1'), fd.get('phone')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
   saveEnableSync: async fd => { const b = $('.sheet button.pri'); b.disabled = true; try { await enableSync(fd.get('pw'), fd.get('phone'), fd.get('code').trim()); closeSheet(); toast(R.sync?.state === 'ok' ? 'فُعّلت المزامنة' : 'فُعّلت، وستُرفع عند الاتصال', 'ok'); render(); } catch (e) { $('#esErr').textContent = e.message; b.disabled = false; } },
-  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; if (isOwner()) { S.profile.quit = !!fd.get('quit'); S.profile.quitSet = 1; } const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
+  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.autoFrom = +fd.get('autoFrom') || 420; S.settings.autoTo = +fd.get('autoTo') || 1320; S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; S.profile.quit = !!fd.get('quit'); S.profile.quitSet = 1; const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
   pickFile: el => { const file = el.files[0]; el.value = ''; if (!file) return; R.pendingFile = { file, k: el.dataset.k, o: el.dataset.o }; sheet('إضافة ملف', `<div class="list-row">${ic('file')}<span class="grow"><b>${esc(file.name)}</b><br><small class="muted">${fmtSize(file.size)}</small></span></div><div class="note">سيُحفظ داخل التطبيق ويأخذ ${fmtSize(file.size)} من مساحة هاتفك، ويعمل دون إنترنت.</div><button class="btn pri block" style="margin-top:12px" data-a="confirmFile">أضف الملف</button>`); },
@@ -1320,22 +1372,8 @@ const AUTH = {
   authRecover: async fd => { try { await recover(fd.get('phone'), fd.get('code'), fd.get('pw')); enterApp(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#authErr').textContent = e.message; } }
 };
 A.enter = () => enterApp();
-function ownerSetup() {
-  if (!S || !isOwner()) return; S.flags ??= {};
-  if (!S.flags.uni1) {
-    S.flags.uni1 = 1; const UNI = [1, 3, 5];
-    S.routine.push({ id: uid(), name: 'الجامعة', start: '08:00', end: '14:00', days: UNI.slice(), cat: 'uni', w: 3, al: [-60, -30], note: 'دراسة حضورية' });
-    for (const [subj, start, end] of [['math', '15:00', '16:15'], ['english', '21:00', '22:00']]) {
-      const r = S.routine.find(x => x.subject === subj && x.cat === 'study'); if (!r) continue;
-      const moved = r.days.filter(d => UNI.includes(d)); if (!moved.length) continue;
-      r.days = r.days.filter(d => !UNI.includes(d));
-      S.routine.push({ ...r, id: uid(), start, end, days: moved, note: 'يوم الجامعة' });
-    }
-    delete S.plan[logicalToday()]; save();
-  }
-}
 function enterApp() {
-  if (S) migrate(); ownerSetup(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); }
+  if (S) migrate(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); setTimeout(() => { if (S.flags?.setup === 0) showSetup(); else maybeLate(); }, 600); }
 
 // ================= الأحداث =================
 document.addEventListener('click', e => { const el = e.target.closest('[data-a]'); if (!el || el.disabled) return; const fn = A[el.dataset.a]; if (fn) { e.preventDefault(); fn(el.dataset, el, e); } });
@@ -1345,7 +1383,7 @@ addEventListener('online', () => syncNow());
 let lastY = 0;
 addEventListener('scroll', () => { const y = scrollY, tb = $('#topbar'); if (!tb) return; if (y > lastY + 6 && y > 70) tb.classList.add('hide'); else if (y < lastY - 6 || y < 40) tb.classList.remove('hide'); lastY = y; }, { passive: true });
 let hiddenAt = 0;
-document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); R.habitUntil = 0; if (['quit', 'urge'].includes(cur().v)) { R.stack = []; render(); } if (saveT) { clearTimeout(saveT); saveT = null; persist(); } return; } syncNow(); if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); R.habitUntil = 0; if (['quit', 'urge'].includes(cur().v)) { R.stack = []; render(); } if (saveT) { clearTimeout(saveT); saveT = null; persist(); } return; } syncNow(); if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); if (hiddenAt && Date.now() - hiddenAt > 5 * 60e3) maybeLate(); });
 setInterval(() => {
   if (!S) return;
   const v = cur().v;
@@ -1390,7 +1428,7 @@ function showLock() {
   closeSheet(true); $$('.viewer').forEach(v => v.remove()); $('#app').hidden = true; const a = $('#auth'); a.hidden = false;
   a.innerHTML = `<div class="auth-card"><img class="auth-wordmark" src="icons/logo.png" alt="MASAR"><p class="sub">مرحباً ${esc(accounts()[ACC]?.name || '')}</p><div class="card" style="text-align:center"><button class="btn pri block press" style="height:58px;font-size:17px" data-a="bioUnlock">${ic('lock')} فتح بـ Face ID</button><div class="err" id="authErr"></div><button class="link" data-a="lockPw">استعمل كلمة السر</button></div></div>`;
 }
-A.bioUnlock = async () => { try { await bioVerify(); ownerSetup(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); render(); } catch { $('#authErr').textContent = 'لم يتم التحقق، حاول مرة أخرى أو استعمل كلمة السر'; } };
+A.bioUnlock = async () => { try { await bioVerify(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); render(); } catch { $('#authErr').textContent = 'لم يتم التحقق، حاول مرة أخرى أو استعمل كلمة السر'; } };
 A.lockPw = () => { S = null; DEK = null; showAuth('login'); };
 C.bioToggle = async el => {
   if (el.checked) {
@@ -1403,9 +1441,9 @@ C.bioToggle = async el => {
 new MutationObserver(() => { $$('input[type=password]:not([data-eye])').forEach(i => { i.dataset.eye = 1; const w = document.createElement('span'); w.className = 'pw-wrap'; i.parentNode.insertBefore(w, i); w.append(i); const b = document.createElement('button'); b.type = 'button'; b.className = 'pw-eye'; b.setAttribute('aria-label', 'إظهار كلمة السر'); b.innerHTML = ic('eye'); b.onclick = () => { const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.innerHTML = ic(show ? 'eyeoff' : 'eye'); }; w.append(b); }); }).observe(document.body, { childList: true, subtree: true });
 // ================= التشغيل =================
 async function boot() {
-  $('#tabbar').innerHTML = [['today', 'اليوم'], ['lessons', 'الدروس'], ['projects', 'المشاريع'], ['plan', 'الخطة'], ['more', 'المزيد']].map(([t, l]) => `<button class="tab press" data-a="tab" data-t="${t}">${ic(t)}<span>${l}</span></button>`).join('');
+  $('#tabbar').innerHTML = [['today', 'اليوم'], ['lessons', 'الدروس'], ['plan', 'الخطة'], ['more', 'المزيد']].map(([t, l]) => `<button class="tab press" data-a="tab" data-t="${t}">${ic(t)}<span>${l}</span></button>`).join('');
   if (!window.crypto?.subtle) { $('#auth').hidden = false; $('#auth').innerHTML = '<div class="card">يجب فتح التطبيق من رابط آمن (https).</div>'; return; }
-  await idb(); await OWNER_P;
+  await idb();
   try { const s = await idbDo('kv', 'readonly', st => st.get('session')); if (s && accounts()[s.id]) { ACC = s.id; DEK = s.key; TOKEN = s.token || null; await loadData(); syncNow(); return accounts()[ACC].bio ? showLock() : enterApp(); } } catch (e) { console.warn(e); }
   showAuth(Object.keys(accounts()).length ? 'login' : 'signup');
 }

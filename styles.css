@@ -278,3 +278,20 @@ button:disabled{opacity:.45;cursor:default}
 .qz .opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .opt.sel{border-color:var(--pri);background:var(--pri-t)}
 .qz .opts .opt{text-align:center;margin:0}
+
+.tr{grid-template-columns:minmax(0,1fr) 76px 72px}
+.ta{gap:4px;align-items:center}
+.kebab{width:26px;height:33px;color:var(--tx3);font-size:20px;line-height:1;display:grid;place-items:center}
+.tr.compact{padding:5px 8px}.tr.compact .tn b{font-size:13px;font-weight:600}.tr.compact .mini{width:28px;height:28px;border-radius:10px}.tr.compact .cat{transform:scale(.85)}
+.done-fold{width:100%;padding:12px;margin-top:6px;border-radius:14px;background:var(--card2);color:var(--tx2);font-weight:700;font-size:13px}
+.late-card{border-color:rgba(220,38,38,.35)}
+.late-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.late-row:first-of-type{border-top:0}
+.l3{display:flex;gap:6px;flex:none}
+.l3 .btn.sm{height:34px;padding:0 10px;font-size:13px}
+.stack-btns{display:grid;gap:8px}
+.now-card{border-color:rgba(79,70,229,.35)}
+.now-card b{font-size:17px}
+
+.sumline{display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px;color:var(--mut,#667);font-size:13px}
+.sumline .pill{padding:6px 12px;font-size:12px}
