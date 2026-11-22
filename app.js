@@ -175,7 +175,7 @@ function defaultState(name, owner) {
   const subj = (id, name, sym, color) => ({ id, name, sym, color, lessons: id, goals: [], refs: [], done: {}, review: {} });
   return {
     v: 1, profile: { name, owner, quit: owner },
-    settings: { theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'مسار', lastBackup: null },
+    settings: { theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
     routine: [
       r('صلاة الفجر', '05:00', '06:00', 'prayer', 2, P), r('ورد القرآن', '06:00', '07:00', 'quran', 2, [0, 15]),
       r('رياضيات', '07:30', '09:00', 'study', 3, [-5], { subject: 'math' }), r('الإنجليزية', '10:00', '11:30', 'study', 3, [-5], { subject: 'english' }),
@@ -195,6 +195,7 @@ function migrate() {
   S.library ??= []; S.exams ??= []; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
   if (!S.profile.owner) S.profile.quit = false;
+  if (S.settings.appName === 'مسار') S.settings.appName = 'MASAR';
 }
 const quitOn = () => !!(S.profile.owner && S.profile.quit);
 
@@ -323,7 +324,7 @@ function render(top) {
   if (!S) return;
   const v = cur(); const out = (VIEWS[v.v] || VIEWS.today)(v);
   document.title = S.settings.appName;
-  $('#tb-title').textContent = out.title;
+  $('#tb-title').innerHTML = out.brand ? `<span class="brand"><img src="icons/icon-192.png" alt="">${esc(S.settings.appName)}</span>` : esc(out.title);
   const isRoot = !R.stack.length;
   $('.tb-start').innerHTML = isRoot ? '' : `<button class="icon-btn press" data-a="back" aria-label="رجوع">${ic('back')}</button>`;
   $('.tb-end').innerHTML = `${out.plus ? `<button class="plus-btn press" data-a="${out.plus}" aria-label="إضافة">${ic('plus')}</button>` : ''}<button class="icon-btn press" data-a="theme" aria-label="الوضع">${ic(isDark() ? 'sun' : 'moon')}</button>`;
@@ -351,7 +352,7 @@ VIEWS.today = () => {
   const backupDue = !S.settings.lastBackup || daysBetween(S.settings.lastBackup, today) >= 7;
   const tip = (quitOn() && Math.random() < .35) ? pick(QUIT_TIPS) : TIPS[(parseYmd(today).getTime() / 864e5 | 0) % TIPS.length];
   return {
-    title: date === today ? 'اليوم' : (date < today ? 'يوم سابق' : 'يوم قادم'), plus: 'addExtra',
+    title: date === today ? 'اليوم' : (date < today ? 'يوم سابق' : 'يوم قادم'), brand: !R.stack.length, plus: 'addExtra',
     after: () => { if (q) { const m = [...QUIT_MILESTONES].reverse().find(x => q.days >= x); if (m && !S.cele['q:' + m]) { S.cele['q:' + m] = 1; save(); setTimeout(() => { confetti(); toast(MILESTONE_MSG[m], 'ok'); }, 400); } } },
     html: `
     <div class="day-head"><div class="grow"><div class="dow">${DOW[d.getDay()]}</div><div class="dates">${fmtGreg(d)} · ${fmtHijri(d)}</div>
@@ -863,7 +864,7 @@ const F = {
   saveSet: (fd, f) => { const n = parseInt(normDigits(fd.get('n'))); if (!(n >= 0)) return toast('اكتب رقماً'); const t = logicalToday(), ses = S.health.sessions[t] ||= { sets: {} }, arr = ses.sets[f.dataset.id] ||= []; arr[+f.dataset.i] = n; for (let i = 0; i < arr.length; i++) if (arr[i] === undefined) arr[i] = null; save(); closeSheet(); R.rest = { end: Date.now() + EXERCISES[f.dataset.id].rest * 1000 }; render(); },
   saveRelapse: fd => { const reason = fd.get('reason') || 'غير محدد'; S.quit.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
   savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
-  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'مسار'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); if (S.profile.owner) S.profile.quit = !!fd.get('quit'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
+  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); if (S.profile.owner) S.profile.quit = !!fd.get('quit'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
   pickFile: el => { const file = el.files[0]; el.value = ''; if (!file) return; R.pendingFile = { file, k: el.dataset.k, o: el.dataset.o }; sheet('إضافة ملف', `<div class="list-row">${ic('file')}<span class="grow"><b>${esc(file.name)}</b><br><small class="muted">${fmtSize(file.size)}</small></span></div><div class="note">سيُحفظ داخل التطبيق ويأخذ ${fmtSize(file.size)} من مساحة هاتفك، ويعمل دون إنترنت.</div><button class="btn pri block" style="margin-top:12px" data-a="confirmFile">أضف الملف</button>`); },
