@@ -296,7 +296,7 @@ function applyPack(id) {
   if (hasPack(id)) return false; const t = logicalToday(), ALL = [0, 1, 2, 3, 4, 5, 6], P = [0, 10, 20, 30, 40, 50];
   const r = (name, start, end, cat, w, al, x = {}) => ({ id: uid(), name, start, end, days: ALL.slice(), cat, w, al, ...x });
   if (id === 'prayer') S.routine.push(r('صلاة الفجر', '05:00', '06:00', 'prayer', 2, P), r('ورد القرآن', '06:00', '07:00', 'quran', 2, [0, 15]), r('صلاة الظهر', '13:30', '14:30', 'prayer', 2, P), r('صلاة العصر', '16:30', '17:30', 'prayer', 2, P), r('صلاة المغرب', '18:30', '19:30', 'prayer', 2, P), r('صلاة العشاء', '20:00', '21:00', 'prayer', 2, P));
-  else if (id === 'sport') { S.projects.push(healthProject(t)); S.routine.push(r('الرياضة', '17:30', '18:15', 'sport', 2, [-10], { project: 'health' })); }
+  else if (id === 'sport') { S.projects.push(healthProject(t)); hPlan(); syncSport(); }
   else if (PACK_SUBJ[id]) { const [n, sym, color, hrs] = PACK_SUBJ[id];
     const sb = { id, name: n, sym, color, lessons: LESSONS[id] ? id : null, goals: [], plan: [], cur: {}, written: [], uni: false, refs: [], done: {}, review: {} };
     (PLAN_SEED[id] || []).forEach(([tt, mo, steps]) => sb.plan.push({ id: uid(), t: tt, seed: 1, res: PLAN_RES[tt] || [], due: mo ? monthEnd(mo) : '', steps: steps.map(x => ({ id: uid(), t: x, mins: 45, done: false })) }));
@@ -318,7 +318,7 @@ function migrate() {
   S.library ??= []; S.exams ??= []; S.todos ??= []; S.targets ??= []; S.plan ??= {}; S.reviews ??= {}; S.top3 ??= {}; S.settings.maxAuto ??= 120; S.settings.reviewTime ??= '21:30'; S.settings.dayView ??= 'table'; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
   if (S.profile.quitSet === undefined) { S.profile.quit = false; S.profile.quitSet = 1; }
-  S.flags ??= {}; S.habits ??= []; S.focusLog ??= {}; S.cards ??= []; S.focus ??= null;
+  S.flags ??= {}; S.habits ??= []; if (S.health) S.health.plan ??= { days: [6, 0, 2, 3], time: (S.routine.find(r => r.cat === 'sport') || {}).start || '17:30', dur: 45, walk: true }; if (S.health && !S.flags.wt1) { S.flags.wt1 = 1; if (S.routine.some(r => r.cat === 'sport')) syncSport(); } S.focusLog ??= {}; S.cards ??= []; S.focus ??= null;
   if (!S.flags.hab1) { S.flags.hab1 = 1; if (S.profile.quit === true) S.habits.push({ id: 'h_legacy', key: 'legacy', name: 'عادتي', kind: 'quit', start: S.quit.start, relapses: S.quit.relapses || [], urges: S.quit.urges || [], checks: {} }); }
   if (S.flags.setup === undefined) S.flags.setup = 1; S.settings.autoFrom ??= 420; S.settings.autoTo ??= 1320;
   S.subjects.forEach(s => { s.cur ??= {}; s.written ??= []; if (s.uni === undefined) s.uni = !['math', 'physics', 'english', 'french'].includes(s.id); s.plan ??= []; if (s.goals?.length) { s.plan.push({ id: uid(), t: 'أهداف سابقة', due: '', steps: s.goals.map(g => ({ id: g.id, t: g.t, mins: 60, done: !!g.done })) }); s.goals = []; } });
@@ -344,7 +344,18 @@ const habitLocked = () => S.settings.habitLock !== false;
 const habitsOpen = () => !habitLocked() || !S.habits.length || (R.habitUntil || 0) > Date.now();
 
 // ================= منطق اليوم =================
-function sessionKey(date) { return WORKOUT_DAYS[parseYmd(date).getDay()] || null; }
+const hPlan = () => (S.health.plan ||= { days: [6, 0, 2, 3], time: '17:30', dur: 45, walk: true });
+const SESS = ['UA', 'LA', 'UB', 'LB'];
+function sessionKey(date) { const d = parseYmd(date).getDay(), order = WEEK.filter(x => hPlan().days.includes(x)), i = order.indexOf(d); return i < 0 ? null : SESS[i % 4]; }
+function syncSport() {
+  const p = hPlan(), end = fromMin(toMin(p.time) + p.dur), rest = [0, 1, 2, 3, 4, 5, 6].filter(d => !p.days.includes(d));
+  let tr = S.routine.find(r => r.cat === 'sport' && !r.walk), wk = S.routine.find(r => r.walk);
+  if (!tr) { tr = { id: uid(), name: 'الرياضة', cat: 'sport', w: 2, al: [-10], project: 'health' }; S.routine.push(tr); }
+  Object.assign(tr, { start: p.time, end, days: p.days.slice() });
+  if (p.walk && rest.length) { if (!wk) { wk = { id: uid(), name: 'مشي خفيف', cat: 'sport', w: 1, al: [], walk: true, project: 'health' }; S.routine.push(wk); } Object.assign(wk, { start: p.time, end: fromMin(toMin(p.time) + 30), days: rest }); }
+  else if (wk) S.routine = S.routine.filter(r => r !== wk);
+  delete S.plan[logicalToday()];
+}
 function workoutName(date) { const k = sessionKey(date); return k ? 'تمرين: ' + WORKOUTS[k].n : 'مشي خفيف 30 دقيقة'; }
 function syncStep(td) { if (!td.step) return; for (const s of S.subjects) for (const g of s.plan || []) { const x = g.steps.find(y => y.id === td.step); if (x) x.done = true; } }
 function monthEnd(n) { const d = parseYmd(logicalToday()); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 0)); }
@@ -475,7 +486,7 @@ function cardPct(p, c) {
   if (c.type === 'goals') { const t = p.goals.reduce((a, g) => a + g.w, 0); return t ? Math.round(p.goals.filter(g => g.done).reduce((a, g) => a + g.w, 0) / t * 100) : null; }
   if (c.type === 'milestones') { const t = p.milestones.length; return t ? Math.round(p.milestones.filter(m => m.done).length / t * 100) : null; }
   if (c.type === 'daily') { const it = p.daily || []; if (!it.length) return null; const L = S.log[today] || {}; return Math.round(it.filter(x => L['d:' + x.id]?.s === 'done').length / it.length * 100); }
-  if (c.type === 'workout') { const ws = weekStart(today); let done = 0; for (let i = 0; i < 7; i++) if (S.health.sessions[addDays(ws, i)]?.done) done++; const planned = Object.keys(WORKOUT_DAYS).length; return Math.min(100, Math.round(done / planned * 100)); }
+  if (c.type === 'workout') { const ws = weekStart(today); let done = 0; for (let i = 0; i < 7; i++) if (S.health.sessions[addDays(ws, i)]?.done) done++; const planned = hPlan().days.length; return Math.min(100, Math.round(done / planned * 100)); }
   return null;
 }
 function projectPct(p) {
@@ -882,16 +893,36 @@ function cardBody(p, c) {
   return '';
 }
 function isDeload(date) { return Math.floor(daysBetween(S.health.start, date) / 7) % 4 === 3; }
+const WT = [['today', 'اليوم'], ['week', 'الأسبوع'], ['log', 'تقدّمي']];
+const sessPreview = k => `<div class="card"><h3>${WORKOUTS[k].n}</h3>${WORKOUTS[k].ex.map(e => `<button class="list-row press" style="width:100%;text-align:right" data-a="exHelp" data-id="${e}"><span class="grow">${EXERCISES[e].n}<br><small class="muted">${EXERCISES[e].m}</small></span>${ic('info')}</button>`).join('')}</div>`;
 VIEWS.workout = () => {
-  const today = logicalToday(), k = sessionKey(today);
-  if (!k) return { title: 'التمارين', html: `<div class="card"><h3>يوم راحة</h3><p class="muted">مشي خفيف 30 دقيقة وإطالة. الحصص: ${Object.entries(WORKOUT_DAYS).map(([d, w]) => DOW[d] + ' (' + WORKOUTS[w].n + ')').join('، ')}.</p></div>` + Object.values(WORKOUTS).map(w => `<div class="card"><h3>${w.n}</h3>${w.ex.map(e => `<button class="list-row press" style="width:100%;text-align:right" data-a="exHelp" data-id="${e}"><span class="grow">${EXERCISES[e].n}</span>${ic('info')}</button>`).join('')}</div>`).join('') };
+  const today = logicalToday(), k = sessionKey(today), tab = R.wt || 'today', p = hPlan();
+  const seg = `<div class="seg">${WT.map(([v, l]) => `<button class="${tab === v ? 'on' : ''}" data-a="wtTab" data-v="${v}">${l}</button>`).join('')}</div>`;
+  if (tab === 'week') {
+    const ws = weekStart(today), days = WEEK.map((d, i) => [d, addDays(ws, i)]), done = days.filter(([, dt]) => S.health.sessions[dt]?.done).length;
+    return { title: 'التمارين', html: `${seg}<div class="card"><div class="row"><h3 class="grow" style="margin:0">هذا الأسبوع</h3><span class="tag pri">${done} من ${p.days.length}</span></div>
+      ${days.map(([d, dt]) => { const key = sessionKey(dt), ok = S.health.sessions[dt]?.done; return `<button class="list-row press" style="width:100%;text-align:right" ${key ? `data-a="wtPreview" data-k="${key}"` : ''}><span class="sym sm c-${ok ? 'teal' : key ? 'indigo' : 'slate'}" style="font-family:inherit">${ok ? ic('check') : ic(key ? 'dumbbell' : 'heart')}</span><span class="grow"><b>${DOW[d]}${dt === today ? ' · اليوم' : ''}</b><br><small class="muted">${key ? WORKOUTS[key].n : 'يوم راحة' + (p.walk ? ' · مشي خفيف' : '')}</small></span><small class="muted ltr">${key ? p.time : ''}</small></button>`; }).join('')}</div>
+      <div class="note">يتناوب البرنامج: علوي A، سفلي A، علوي B، سفلي B حسب أيامك. كل 4 أسابيع أسبوع تخفيف.</div>
+      <button class="btn block" data-a="wtPlan">${ic('gear')} تعديل أيامي ووقتي</button>` };
+  }
+  if (tab === 'log') {
+    const ss = S.health.sessions, ds = Object.keys(ss).filter(d => ss[d].done).sort(), m = today.slice(0, 7), mc = ds.filter(d => d.startsWith(m)).length;
+    let wk = 0; { let w = weekStart(today); for (let i = 0; i < 26; i++, w = addDays(w, -7)) { let n = 0; for (let j = 0; j < 7; j++) if (ss[addDays(w, j)]?.done) n++; if (n >= Math.min(2, p.days.length) ) wk++; else if (i > 0) break; } }
+    const exs = Object.keys(EXERCISES).map(id => { const h = Object.keys(ss).sort().filter(d => ss[d].sets?.[id]?.some(x => x != null)).slice(-6).map(d => Math.max(...ss[d].sets[id].filter(x => x != null))); return [id, h]; }).filter(([, h]) => h.length);
+    return { title: 'التمارين', html: `${seg}<div class="strip"><div class="stat"><small>حصص هذا الشهر</small><b>${mc}</b></div><div class="stat"><small>إجمالي الحصص</small><b>${ds.length}</b></div><div class="stat"><small>أسابيع ملتزمة</small><b>${wk}</b></div></div>
+      <div class="card"><h3>تقدّمك في كل تمرين</h3>${exs.length ? exs.map(([id, h]) => { const up = h.length > 1 && h[h.length - 1] > h[0]; return `<div class="list-row"><span class="grow">${EXERCISES[id].n}<br><small class="muted ltr">${h.join(' → ')}</small></span>${h.length > 1 ? `<span class="tag ltr ${up ? 'ok' : ''}">${h[h.length - 1] - h[0] >= 0 ? '+' : ''}${h[h.length - 1] - h[0]}</span>` : ''}</div>`; }).join('') : '<div class="empty">سجّل مجموعاتك في الحصص لتظهر هنا أفضل أرقامك وتطوّرها.</div>'}</div>` };
+  }
+  if (!k) {
+    const order = WEEK.map(d => [d, addDays(today, ((d - parseYmd(today).getDay()) + 7) % 7)]).filter(([d]) => sessionKey(addDays(today, ((d - parseYmd(today).getDay()) + 7) % 7))).sort((x, y) => x[1].localeCompare(y[1])), nx = order[0];
+    return { title: 'التمارين', html: `${seg}<div class="card"><h3>يوم راحة</h3><p class="muted" style="margin:0">${p.walk ? 'مشي خفيف 30 دقيقة وإطالة. ' : ''}العضلات تنمو أثناء الراحة.</p></div>${nx ? `<div class="card"><div class="row"><span class="sym sm c-teal">${ic('dumbbell')}</span><div class="grow"><small class="muted">حصتك القادمة</small><br><b>${DOW[parseYmd(nx[1]).getDay()]} · ${WORKOUTS[sessionKey(nx[1])].n}</b></div></div></div>${sessPreview(sessionKey(nx[1]))}` : ''}` };
+  }
   const W = WORKOUTS[k], ses = S.health.sessions[today] ||= { sets: {} }, dl = isDeload(today);
   const rows = W.ex.map(id => {
     const e = EXERCISES[id], n = e.sets - (dl ? 1 : 0), got = ses.sets[id] || [], u = e.unit || 'تكرار';
     return `<div class="ex-row" style="display:block"><div class="row"><button class="grow press" style="text-align:right" data-a="exHelp" data-id="${id}"><b>${e.n}</b> ${ic('info')}<br><small class="muted"><span class="ltr">${n} × ${e.reps[0]}–${e.reps[1]}</span> ${u}${e.perSide ? ' لكل جهة' : ''} · راحة ${e.rest} ث</small></button></div>
     <div class="sets">${Array.from({ length: n }, (_, i) => `<button class="set press ${got[i] != null ? 'on' : ''}" data-a="logSet" data-id="${id}" data-i="${i}">${got[i] != null ? got[i] : i + 1}</button>`).join('')}</div><div class="note" style="margin-top:8px">${esc(progressHint(id, today))}</div></div>`;
   }).join('');
-  return { title: W.n, html: `<div class="card"><div class="note" style="margin:0">${WARMUP}</div></div><div class="card">${rows}</div><div class="card"><div class="note" style="margin:0">${COOLDOWN}</div></div>
+  return { title: W.n, html: `${seg}${dl ? '<div class="note">أسبوع تخفيف: مجموعة أقل في كل تمرين.</div>' : ''}<div class="card"><div class="note" style="margin:0">${WARMUP}</div></div><div class="card">${rows}</div><div class="card"><div class="note" style="margin:0">${COOLDOWN}</div></div>
     <button class="btn ${ses.done ? 'ok' : 'pri'} block" data-a="finishWorkout">${ses.done ? ic('check') + ' أنجزت الحصة' : 'أنهيت الحصة'}</button><div style="height:70px"></div>${R.rest ? restBar() : ''}`, after: () => {} };
 };
 function progressHint(id, today) {
@@ -1138,6 +1169,12 @@ const A = {
   cardRevealA: () => { R.card = { ...(R.card || {}), show: true }; render(); },
   cardAns: d => { const c = S.cards.find(x => x.id === d.id); if (!c) return; if (d.ok === '1') { c.box++; if (c.box >= CARD_GAP.length) S.cards = S.cards.filter(x => x.id !== c.id); else c.due = addDays(logicalToday(), CARD_GAP[c.box]); } else { c.box = 0; c.due = logicalToday(); R.cardSkip = [...(R.cardSkip || []), c.id]; } R.card = null; save(); render(true); },
   authLang: () => { setLang(LANG === 'en' ? 'ar' : 'en'); showAuth(R.authMode); },
+  wtTab: d => { R.wt = d.v; render(); },
+  wtPreview: d => sheet(WORKOUTS[d.k].n, sessPreview(d.k)),
+  wtPlan: () => { const p = hPlan(); sheet('أيام تمرينك', `<form data-f="saveWtPlan"><p class="muted" style="margin-top:0">اختر من 2 إلى 6 أيام. يوزَّع البرنامج عليها بالتناوب، ويُضبط روتينك تلقائياً.</p>
+    <div class="field"><span>أيام التمرين</span>${chipsHtml('days', WEEK.map(d => [d, DOW_S[d]]), p.days, 'checkbox')}</div>
+    <div class="two"><label class="field"><span>الوقت</span><input class="input" type="time" name="time" value="${p.time}" required></label><label class="field"><span>المدة</span><select class="input" name="dur">${[30, 45, 60, 75].map(m => `<option value="${m}" ${p.dur === m ? 'selected' : ''}>${m} د</option>`).join('')}</select></label></div>
+    ${sw('مشي خفيف في أيام الراحة', 'name="walk"', p.walk)}<button class="btn pri block" style="margin-top:12px">حفظ</button></form>`); },
   skipSetup: () => { S.flags.setup = 1; save(); closeSheet(); },
   showSetupBtn: () => showSetup(),
   toggleDone: () => { R.showDone = !R.showDone; render(); },
@@ -1300,7 +1337,7 @@ const A = {
   clearSet: d => { const ses = S.health.sessions[logicalToday()]; ses.sets[d.id][d.i] = null; ses.sets[d.id] = ses.sets[d.id].filter((x, i, a) => i < a.length - 1 || x != null); save(); closeSheet(); render(); },
   skipRest: () => { R.rest = null; $('#restBar')?.remove(); },
   finishWorkout: () => { const t = logicalToday(), ses = S.health.sessions[t] ||= { sets: {} }; if (ses.done) return; ses.done = true;
-    const sp = S.routine.find(r => r.cat === 'sport' && r.days.includes(parseYmd(t).getDay())); if (sp) setLog(t, sp.id, { s: 'done', t: Date.now() });
+    const sp = S.routine.find(r => r.cat === 'sport' && !r.walk && r.days.includes(parseYmd(t).getDay())); if (sp) setLog(t, sp.id, { s: 'done', t: Date.now() });
     save(); R.rest = null; render(); confetti(); toast('حصة منجزة! جسمك يشكرك', 'ok'); checkDayComplete(t); },
   // عادتي
   goQuit: async () => { if (await unlockHabits()) go('quit'); }, goUrge: async d => { if (!(await unlockHabits())) return; R.urge = { start: Date.now(), steps: {}, hab: d.id || R.hab }; go('urge'); },
@@ -1419,6 +1456,7 @@ const F = {
     fd.getAll('pack').forEach(applyPack);
     (fd.get('uni') || '').split('\n').map(x => x.trim()).filter(Boolean).forEach((n, i) => S.subjects.push({ id: uid(), name: n, sym: n[0], color: COLORS[(i + 3) % COLORS.length], lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }));
     S.flags.setup = 1; S.flags.fresh = { d: logicalToday(), m: nowLMin() }; delete S.plan[logicalToday()]; save(); closeSheet(); R.stack = []; R.tab = 'today'; render(true); toast('تم الإعداد، عدّل أي شيء من «الخطة» و«الإعدادات»', 'ok'); },
+  saveWtPlan: fd => { const days = fd.getAll('days').map(Number); if (days.length < 2 || days.length > 6) return toast('اختر من 2 إلى 6 أيام'); Object.assign(hPlan(), { days, time: fd.get('time'), dur: +fd.get('dur'), walk: !!fd.get('walk') }); syncSport(); save(); closeSheet(true); render(); toast('حُدّث برنامجك وروتينك', 'ok'); },
   saveSubject: fd => { const name = fd.get('name').trim(); S.subjects.push({ id: uid(), name, sym: fd.get('sym').trim() || name[0], color: fd.get('color') || 'violet', lessons: null, goals: [], plan: [], cur: {}, written: [], uni: true, refs: [], done: {}, review: {} }); R.sub.lf = 'uni'; save(); closeSheet(); render(true); },
   addGoal: (fd, f) => { const o = ownerOf(f.dataset.k, f.dataset.o); const before = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); o.goals.push({ id: uid(), t: fd.get('t').trim(), w: +fd.get('w'), done: false }); save(); const after = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); render(); if (before != null && before !== after) toast(`كانت ${before}% وصارت ${after}% بعد إضافة الهدف`); },
   addMs: (fd, f) => { S.projects.find(x => x.id === f.dataset.p).milestones.push({ id: uid(), t: fd.get('t').trim(), date: fd.get('date') || '', done: false }); save(); render(); },
