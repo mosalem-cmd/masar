@@ -619,6 +619,7 @@ VIEWS.settings = () => ({
     ${S.profile.owner ? sw('إظهار قسم عاداتي', 'name="quit"', S.profile.quit) : ''}
     <button class="btn pri block">حفظ</button></form>
     <div class="card"><h3>الأمان والبيانات</h3>
+    ${sw('قفل بـ Face ID', 'data-c="bioToggle"', !!accounts()[ACC]?.bio)}<div class="note" style="margin-top:0">يُطلب عند فتح التطبيق وبعد دقيقة من تركه.</div>
     <button class="list-row press" style="width:100%;text-align:right" data-a="changePw">${ic('lock')}<span class="grow">تغيير كلمة السر</span></button>
     <button class="list-row press" style="width:100%;text-align:right" data-a="exportBackup">${ic('download')}<span class="grow">تصدير نسخة احتياطية مشفّرة</span></button>
     <label class="list-row press" style="cursor:pointer">${ic('upload')}<span class="grow">استيراد نسخة احتياطية</span><input type="file" hidden accept=".json,application/json" data-c="importBackup"></label>
@@ -906,7 +907,7 @@ function showAuth(mode) {
   const phone = `<label class="field"><span>رقم الهاتف</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" autocomplete="username" required placeholder="22xxxxxx"></label>`;
   const forms = {
     login: `<form data-f="authLogin">${phone}<label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" autocomplete="current-password" required></label>${sw('تذكرني على هذا الجهاز', 'name="remember"', true)}<div class="err" id="authErr"></div><button class="btn pri block">دخول</button></form><div class="btns" style="justify-content:space-between"><button class="link" data-a="authMode" data-m="recover">نسيت كلمة السر</button><button class="link" data-a="authMode" data-m="signup">حساب جديد</button></div>`,
-    signup: `<form data-f="authSignup"><label class="field"><span>الاسم</span><input class="input" name="name" required></label>${phone}<label class="field"><span>كلمة السر (6 أحرف على الأقل)</span><input class="input" type="password" name="pw" autocomplete="new-password" required minlength="6"></label><label class="field"><span>تأكيد كلمة السر</span><input class="input" type="password" name="pw2" required></label><div class="err" id="authErr"></div><button class="btn pri block">إنشاء الحساب</button></form>${has ? '<div class="btns"><button class="link" data-a="authMode" data-m="login">لدي حساب</button></div>' : '<div class="note">بياناتك تبقى على هذا الهاتف فقط ومشفّرة بكلمة سرك.</div>'}`,
+    signup: `<form data-f="authSignup"><label class="field"><span>الاسم</span><input class="input" name="name" required></label>${phone}<label class="field"><span>كلمة السر (6 أحرف على الأقل)</span><input class="input" type="password" name="pw" autocomplete="new-password" required minlength="6"></label><label class="field"><span>تأكيد كلمة السر</span><input class="input" type="password" name="pw2" required></label><div class="err" id="authErr"></div><button class="btn pri block">إنشاء الحساب</button></form>${has ? '<div class="btns"><button class="link" data-a="authMode" data-m="login">لدي حساب</button></div>' : '<div class="note">بياناتك تبقى على هذا الهاتف فقط ومشفّرة بكلمة سرك.</div>'}<label class="btn block sm" style="margin-top:12px;cursor:pointer">${ic('upload')} لدي نسخة احتياطية: استعادة<input type="file" hidden accept=".json,application/json" data-c="importBackup"></label>`,
     recover: `<form data-f="authRecover">${phone}<label class="field"><span>رمز الاسترجاع</span><input class="input ltr" style="display:block" name="code" required placeholder="XXXX-XXXX-XXXX-XXXX"></label><label class="field"><span>كلمة سر جديدة</span><input class="input" type="password" name="pw" required minlength="6"></label><div class="err" id="authErr"></div><button class="btn pri block">استرجاع</button></form><div class="btns"><button class="link" data-a="authMode" data-m="login">رجوع</button></div>`
   };
   a.innerHTML = `<div class="auth-card">${logo}<p class="sub">${mode === 'signup' ? 'أنشئ حسابك' : mode === 'recover' ? 'استرجاع الحساب' : 'أهلاً بعودتك'}</p><div class="card">${forms[mode]}</div></div>`;
@@ -926,7 +927,8 @@ document.addEventListener('submit', e => { const f = e.target.closest('form[data
 document.addEventListener('change', e => { const el = e.target.closest('[data-c]'); if (el) C[el.dataset.c]?.(el); });
 let lastY = 0;
 addEventListener('scroll', () => { const y = scrollY, tb = $('#topbar'); if (!tb) return; if (y > lastY + 6 && y > 70) tb.classList.add('hide'); else if (y < lastY - 6 || y < 40) tb.classList.remove('hide'); lastY = y; }, { passive: true });
-document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); else if (S && cur().v === 'today' && !SHEET) render(); });
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); persist(); return; } if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); });
 setInterval(() => {
   if (!S) return;
   const v = cur().v;
@@ -935,12 +937,40 @@ setInterval(() => {
   if (v === 'today' && !SHEET && !document.activeElement?.matches('input,textarea,select') && Date.now() - R.lastRender > 60000) render();
 }, 1000);
 
+
+// ================= Face ID =================
+async function bioRegister() {
+  const acc = accounts(), a = acc[ACC];
+  const cred = await navigator.credentials.create({ publicKey: {
+    rp: { name: 'MASAR' }, user: { id: enc.encode(ACC.slice(0, 32)), name: a.name || 'MASAR', displayName: a.name || 'MASAR' },
+    challenge: crypto.getRandomValues(new Uint8Array(32)), pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' }, timeout: 60000, attestation: 'none' } });
+  acc[ACC].bio = b64(cred.rawId); setAccounts(acc);
+}
+async function bioVerify() {
+  const id = accounts()[ACC]?.bio; if (!id) return true;
+  await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{ type: 'public-key', id: ub64(id) }], userVerification: 'required', timeout: 60000 } });
+  return true;
+}
+function showLock() {
+  closeSheet(true); $$('.viewer').forEach(v => v.remove()); $('#app').hidden = true; const a = $('#auth'); a.hidden = false;
+  a.innerHTML = `<div class="auth-card"><img class="auth-wordmark" src="icons/logo.png" alt="MASAR"><p class="sub">مرحباً ${esc(accounts()[ACC]?.name || '')}</p><div class="card" style="text-align:center"><button class="btn pri block press" style="height:58px;font-size:17px" data-a="bioUnlock">${ic('lock')} فتح بـ Face ID</button><div class="err" id="authErr"></div><button class="link" data-a="lockPw">استعمل كلمة السر</button></div></div>`;
+}
+A.bioUnlock = async () => { try { await bioVerify(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); render(); } catch { $('#authErr').textContent = 'لم يتم التحقق، حاول مرة أخرى أو استعمل كلمة السر'; } };
+A.lockPw = () => { S = null; DEK = null; showAuth('login'); };
+C.bioToggle = async el => {
+  if (el.checked) {
+    if (!window.PublicKeyCredential) { el.checked = false; return toast('هذا الجهاز لا يدعم Face ID في المتصفح', 'bad'); }
+    try { await bioRegister(); toast('فُعّل القفل بـ Face ID', 'ok'); } catch { el.checked = false; toast('لم يُفعَّل، حاول مرة أخرى', 'bad'); }
+  } else { const acc = accounts(); delete acc[ACC].bio; setAccounts(acc); toast('أُلغي القفل بـ Face ID'); }
+};
+
 // ================= التشغيل =================
 async function boot() {
   $('#tabbar').innerHTML = [['today', 'اليوم'], ['lessons', 'الدروس'], ['projects', 'المشاريع'], ['plan', 'الخطة'], ['more', 'المزيد']].map(([t, l]) => `<button class="tab press" data-a="tab" data-t="${t}">${ic(t)}<span>${l}</span></button>`).join('');
   if (!window.crypto?.subtle) { $('#auth').hidden = false; $('#auth').innerHTML = '<div class="card">يجب فتح التطبيق من رابط آمن (https).</div>'; return; }
   await idb();
-  try { const s = await idbDo('kv', 'readonly', st => st.get('session')); if (s && accounts()[s.id]) { ACC = s.id; DEK = s.key; await loadData(); return enterApp(); } } catch (e) { console.warn(e); }
+  try { const s = await idbDo('kv', 'readonly', st => st.get('session')); if (s && accounts()[s.id]) { ACC = s.id; DEK = s.key; await loadData(); return accounts()[ACC].bio ? showLock() : enterApp(); } } catch (e) { console.warn(e); }
   showAuth('login');
 }
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
