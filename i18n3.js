@@ -80,3 +80,13 @@ Object.assign(EN, {
   'النفي': 'Negation', 'أدوات الاستفهام': 'Question words', 'الأيام والوقت': 'Days and time', 'الاتجاهات': 'Directions'
 });
 _enBuild();
+
+Object.assign(EN, {
+  'أسئلة برنامجك': 'Your program questions', 'أعدّ برنامجك الخاص': 'Set up your own program', 'ابدأ الأسئلة': 'Start the questions', 'أنشئ برنامجي': 'Create my program', 'أعد إعداد برنامجي': 'Redo my program setup', 'أيامي ووقتي': 'My days and time',
+  'ما هدفك؟': 'What is your goal?', 'ما مستواك؟': 'What is your level?', 'أين تتمرن؟': 'Where do you train?', 'أي الأيام تتمرن؟': 'Which days do you train?', 'متى ولكم من الوقت؟': 'When, and for how long?', 'هل عندك ألم أو إصابة؟': 'Any pain or injury?',
+  'بناء عضلات': 'Build muscle', 'حرق دهون': 'Fat loss', 'لياقة عامة': 'General fitness', 'قوة': 'Strength', 'مبتدئ': 'Beginner', 'متوسط': 'Intermediate', 'متقدم': 'Advanced',
+  'في البيت بلا أدوات': 'At home, no equipment', 'في البيت بأدوات': 'At home with equipment', 'نادٍ رياضي': 'Gym', 'الركبة': 'Knee', 'الظهر': 'Back', 'الكتف': 'Shoulder', 'الرسغ': 'Wrist',
+  'جسم كامل': 'Full body', 'علوي': 'Upper', 'سفلي': 'Lower', 'دفع': 'Push', 'سحب': 'Pull', 'أرجل': 'Legs', 'البداية': 'Start', 'النهاية': 'End', 'الخطوات': 'Steps', 'أخطاء شائعة': 'Common mistakes', 'أسهل': 'Easier', 'أصعب': 'Harder', 'العضلات': 'Muscles', 'دقيقة': 'min',
+  'أجب عن الأسئلة التالية وسأبني لك جدولاً مناسباً ويُضبط في روتينك تلقائياً.': 'Answer these questions and a suitable schedule will be built and added to your routine automatically.'
+});
+_enBuild();
