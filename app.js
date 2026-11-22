@@ -276,7 +276,7 @@ function defaultState(name, owner) {
   const subj = (id, name, sym, color) => ({ id, name, sym, color, lessons: id, goals: [], refs: [], done: {}, review: {} });
   return {
     v: 1, profile: { name, owner, quit: true, quitSet: 1 },
-    settings: { theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
+    settings: { maxAuto: 120, reviewTime: '21:30', dayView: 'table', theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
     routine: [
       r('صلاة الفجر', '05:00', '06:00', 'prayer', 2, P), r('ورد القرآن', '06:00', '07:00', 'quran', 2, [0, 15]),
       r('رياضيات', '07:30', '09:00', 'study', 3, [-5], { subject: 'math' }), r('الإنجليزية', '10:00', '11:30', 'study', 3, [-5], { subject: 'english' }),
@@ -289,11 +289,11 @@ function defaultState(name, owner) {
     projects: [healthProject(t)], library: [], exams: [],
     quit: { start: t, relapses: [], urges: [] },
     health: { start: t, sessions: {}, sleep: {}, meals: {}, mealTimes: { b: '07:15', l: '14:45', d: '20:30' } },
-    lastLesson: null
+    lastLesson: null, todos: [], targets: [], plan: {}, reviews: {}, top3: {}
   };
 }
 function migrate() {
-  S.library ??= []; S.exams ??= []; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
+  S.library ??= []; S.exams ??= []; S.todos ??= []; S.targets ??= []; S.plan ??= {}; S.reviews ??= {}; S.top3 ??= {}; S.settings.maxAuto ??= 120; S.settings.reviewTime ??= '21:30'; S.settings.dayView ??= 'table'; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
   if (S.profile.quitSet === undefined) { S.profile.quit = true; S.profile.quitSet = 1; }
   if (S.settings.appName === 'مسار') S.settings.appName = 'MASAR';
@@ -328,17 +328,86 @@ function examTasks(date) {
   return out;
 }
 function dailyItems() { const o = []; S.projects.forEach(p => { if (p.cards.some(c => c.type === 'daily')) (p.daily || []).forEach(it => o.push({ id: 'd:' + it.id, name: it.t, w: 1, project: p.id })); }); return o; }
+// ================= الجدولة الذكية =================
+const AUTO_FROM = 420, AUTO_TO = 1320;
+const nowLMin = () => { const d = now(); let m = d.getHours() * 60 + d.getMinutes(); if (ymd(d) !== logicalToday()) m += 1440; return m; };
+const bMins = b => durMin(b.start, b.end);
+function refDone(ref, from, to) { let m = 0; for (const [d, bl] of Object.entries(S.plan)) { if ((from && d < from) || (to && d > to)) continue; const L = S.log[d] || {}; for (const b of bl) if (b.ref === ref && L[b.id]?.s === 'done') m += bMins(b); } return m; }
+function refPending(ref) { const t = logicalToday(), L = S.log[t] || {}; return (S.plan[t] || []).filter(b => b.ref === ref && !L[b.id]).reduce((a, b) => a + bMins(b), 0); }
+const todoDone = td => refDone('t:' + td.id);
+const todoLeft = td => Math.max(0, td.mins - todoDone(td));
+function routineSubjMins(subject, from, to, onlyDone) {
+  let m = 0; for (let d = from; d <= to; d = addDays(d, 1)) { const L = S.log[d] || {}, wd = parseYmd(d).getDay();
+    for (const r of S.routine) if (r.subject === subject && r.days.includes(wd)) { const e = L[r.id]; if (onlyDone ? e?.s === 'done' : !e) m += bMins(r); } }
+  return m;
+}
+function targetWeek(tg, date) {
+  const ws = weekStart(date), we = addDays(ws, 6), today = logicalToday();
+  const done = refDone('g:' + tg.id, ws, we) + (tg.subject ? routineSubjMins(tg.subject, ws, today < we ? today : we, true) : 0);
+  return { ws, we, done, goal: Math.round(tg.hours * 60) };
+}
+function freeGaps(date, from, extra) {
+  const busy = busyOn(date, extra).map(([a, b]) => [a - 5, b + 5]).sort((x, y) => x[0] - y[0]); const gaps = []; let t = Math.max(from, AUTO_FROM);
+  for (const [a, b] of busy) { if (b <= t) continue; if (a > t) gaps.push([t, Math.min(a, AUTO_TO)]); t = Math.max(t, b); if (t >= AUTO_TO) break; }
+  if (t < AUTO_TO) gaps.push([t, AUTO_TO]); return gaps.filter(([a, b]) => b - a >= 25);
+}
+function demands(date, carry) {
+  const out = [], today = logicalToday(), top = S.top3?.[date] || [];
+  for (const td of S.todos) {
+    if (td.done) continue; let rem = todoLeft(td) - refPending('t:' + td.id) - (carry['t:' + td.id] || 0); if (rem <= 0) continue;
+    const dl = td.due ? daysBetween(date, td.due) : null; if (dl != null && dl > 0) rem = Math.ceil(rem / (dl + 1) / 15) * 15;
+    const sub = td.subject && S.subjects.find(s => s.id === td.subject);
+    out.push({ ref: 't:' + td.id, name: td.name, amt: Math.min(rem, 120), score: (top.includes(td.id) ? 1000 : 0) + td.prio * 10 + (dl == null ? 0 : dl <= 0 ? 60 : Math.max(0, 14 - dl) * 2), cat: sub ? 'study' : td.project ? 'project' : 'other', subject: td.subject, project: td.project, w: td.prio, top: top.includes(td.id) });
+  }
+  for (const tg of S.targets) {
+    const k = targetWeek(tg, date); const routineLeft = tg.subject ? routineSubjMins(tg.subject, date === today ? today : date, k.we, false) : 0;
+    let need = k.goal - k.done - refPending('g:' + tg.id) - routineLeft - (carry['g:' + tg.id + ':' + k.ws] || 0); if (need <= 0) continue;
+    const daysLeft = daysBetween(date, k.we) + 1; let amt = Math.ceil(need / daysLeft / 15) * 15; amt = Math.max(30, Math.min(amt, need, 120));
+    out.push({ ref: 'g:' + tg.id, wkey: 'g:' + tg.id + ':' + k.ws, name: tg.name, amt, score: tg.prio * 10, cat: tg.subject ? 'study' : tg.project ? 'project' : 'other', subject: tg.subject, project: tg.project, w: tg.prio });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+function planDay(date, from, keep = [], carry = {}) {
+  const gaps = freeGaps(date, from, [...examTasks(date), ...keep]); let budget = (S.settings.maxAuto ?? 120) - keep.filter(b => b.auto).reduce((a, b) => a + bMins(b), 0);
+  const out = [];
+  for (const dm of demands(date, carry)) {
+    let left = Math.min(dm.amt, dm.top ? dm.amt : budget);
+    for (const g of gaps) {
+      while (left >= 15 && g[1] - g[0] >= Math.min(30, left)) {
+        const len = Math.min(left, g[1] - g[0], 90); if (len < 15) break;
+        out.push({ id: `a:${dm.ref}:${date}:${uid()}`, name: dm.name, start: fromMin(g[0]), end: fromMin(g[0] + len), cat: dm.cat, w: dm.w, ref: dm.ref, subject: dm.subject, project: dm.project, auto: true, top: dm.top });
+        g[0] += len + 10; left -= len; if (!dm.top) budget -= len;
+        const ck = dm.wkey || dm.ref; carry[ck] = (carry[ck] || 0) + len;
+      }
+      if (left < 15) break;
+    }
+    if (budget <= 0) break;
+  }
+  return out;
+}
+function ensureTodayPlan() { const t = logicalToday(); if (!S.plan[t]) { S.plan[t] = planDay(t, nowLMin()); save(); } }
+function replanToday(msg) {
+  const t = logicalToday(), L = S.log[t] || {}, nm = nowLMin();
+  const keep = (S.plan[t] || []).filter(b => L[b.id] || toMin(b.start) < nm);
+  S.plan[t] = keep.concat(planDay(t, nm, keep)); save(); if (msg) toast(msg, 'ok');
+}
+function previewPlan(date) {
+  const today = logicalToday(), carry = {}; let res = [];
+  for (let d = addDays(today, 1); d <= date; d = addDays(d, 1)) { res = planDay(d, 0, [], carry).map(b => ({ ...b, preview: true })); }
+  return res;
+}
+function autoBlocks(date) { const today = logicalToday(); if (date === today) { ensureTodayPlan(); return S.plan[date]; } if (date < today) return S.plan[date] || []; return daysBetween(today, date) <= 7 ? previewPlan(date) : []; }
 function dayTasks(date) {
   const wd = parseYmd(date).getDay();
   let t = S.routine.filter(r => r.days.includes(wd)).map(r => ({ ...r, src: 'r', subtxt: r.cat === 'sport' ? workoutName(date) : r.note }));
-  t = t.concat((S.extra[date] || []).map(x => ({ ...x, src: 'x' })), examTasks(date));
+  t = t.concat((S.extra[date] || []).map(x => ({ ...x, src: 'x' })), examTasks(date), autoBlocks(date).map(b => ({ ...b, src: 'a', subtxt: (b.top ? '★ من أهم 3 · ' : '') + (b.preview ? 'مقترح تلقائياً' : 'جُدول تلقائياً') })));
   return t.sort((a, b) => sortKey(a.start) - sortKey(b.start));
 }
 function dayStats(date) {
   const L = S.log[date] || {}, tasks = dayTasks(date), daily = dailyItems();
-  let tot = 0, done = 0;
-  for (const t of [...tasks, ...daily]) { const e = L[t.id]; if (e?.ex) continue; tot += t.w; if (e?.s === 'done') done += t.w; }
-  return { tasks, daily, tot, done, pct: tot ? Math.round(done / tot * 100) : 0 };
+  let tot = 0, done = 0, pm = 0, dm = 0;
+  for (const t of [...tasks, ...daily]) { const e = L[t.id]; if (t.start && t.cat !== 'sleep') { pm += bMins(t); if (e?.s === 'done') dm += bMins(t); } if (e?.ex) continue; tot += t.w; if (e?.s === 'done') done += t.w; }
+  return { tasks, daily, tot, done, pct: tot ? Math.round(done / tot * 100) : 0, planned: pm, doneMins: dm };
 }
 function setLog(date, id, val) { S.log[date] ??= {}; if (val) S.log[date][id] = val; else delete S.log[date][id]; save(); }
 function checkDayComplete(date) {
@@ -443,27 +512,40 @@ function applyTheme() { const t = S?.settings.theme || 'auto'; if (t === 'auto')
 // ---------- اليوم ----------
 VIEWS.today = () => {
   const today = logicalToday(), date = R.day || today, d = parseYmd(date), st = dayStats(date), L = S.log[date] || {};
-  const nm = date === today ? nowMin() : null;
+  const nm = date === today ? nowLMin() : null, view = S.settings.dayView || 'table';
   let prevEnd = -1, rows = '';
   for (const t of st.tasks) {
     const e = L[t.id], a = sortKey(t.start), b = a + durMin(t.start, t.end), overlap = a < prevEnd; prevEnd = Math.max(prevEnd, b);
-    const isNow = nm != null && inRange(nm, t.start, t.end);
-    const sub = e?.s === 'miss' ? `<small class="bad-tx">${esc(e.r)}${e.ex ? ' · مستثناة' : ''}</small>` : overlap ? `<small class="warn-tx">تتداخل مع ما قبلها</small>` : t.subtxt ? `<small>${esc(t.subtxt)}</small>` : isNow ? `<small class="pri-tx">الآن</small>` : '';
-    rows += `<div class="tr ${e?.s === 'done' ? 'is-done' : ''} ${isNow ? 'is-now' : ''}"><button class="tn" data-a="openTask" data-id="${t.id}"><i class="cat cat-${t.cat}"></i><span><b>${esc(t.name)}</b>${sub}</span></button><div class="td">${fmtDur(durMin(t.start, t.end))}</div><div class="tt">${t.start}–${t.end}</div><div class="ta"><button class="mini ok press ${e?.s === 'done' ? 'on' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button><button class="mini no press ${e?.s === 'miss' ? 'on' : ''}" data-a="miss" data-id="${t.id}" aria-label="لم أفعل">${ic('x')}</button></div></div>`;
+    const isNow = nm != null && a <= nm && nm < b;
+    const sub = e?.s === 'miss' ? `<small class="bad-tx">${esc(e.r)}${e.ex ? ' · مستثناة' : ''}</small>` : overlap ? `<small class="warn-tx">تتداخل مع ما قبلها</small>` : t.subtxt ? `<small class="${t.src === 'a' ? 'pri-tx' : ''}">${esc(t.subtxt)}</small>` : isNow ? `<small class="pri-tx">الآن</small>` : '';
+    rows += `<div class="tr ${e?.s === 'done' ? 'is-done' : ''} ${isNow ? 'is-now' : ''} ${t.src === 'a' ? 'is-auto' : ''}"><button class="tn" data-a="openTask" data-id="${t.id}"><i class="cat cat-${t.cat}"></i><span><b>${esc(t.name)}</b>${sub}</span></button><div class="td">${fmtDur(durMin(t.start, t.end))}</div><div class="tt">${t.start}–${t.end}</div><div class="ta">${t.preview ? '<span class="tag pri">مقترح</span>' : `<button class="mini ok press ${e?.s === 'done' ? 'on' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button><button class="mini no press ${e?.s === 'miss' ? 'on' : ''}" data-a="miss" data-id="${t.id}" aria-label="لم أفعل">${ic('x')}</button>`}</div></div>`;
   }
   const daily = st.daily.length ? `<div class="card"><h3>أهداف الصحة اليومية</h3>${st.daily.map(it => { const on = L[it.id]?.s === 'done'; return `<div class="list-row"><button class="chk press ${on ? 'on' : ''}" data-a="toggleDaily" data-id="${it.id}" aria-label="تم">${ic('check')}</button><span class="grow">${esc(it.name)}</span></div>`; }).join('')}</div>` : '';
   const q = quitOn() ? quitInfo() : null;
   const backupDue = !S.settings.lastBackup || daysBetween(S.settings.lastBackup, today) >= 7;
-  const tip = (quitOn() && Math.random() < .35) ? pick(QUIT_TIPS) : TIPS[(parseYmd(today).getTime() / 864e5 | 0) % TIPS.length];
+  const tip = TIPS[(parseYmd(today).getTime() / 864e5 | 0) % TIPS.length];
+  // الآن والتالي
+  let nowNext = '';
+  if (nm != null) {
+    const cur = st.tasks.find(t => { const a = sortKey(t.start); return a <= nm && nm < a + bMins(t) && t.cat !== 'sleep'; });
+    const nxt = st.tasks.find(t => sortKey(t.start) > nm && !L[t.id]);
+    if (cur || nxt) nowNext = `<div class="card now-card">${cur ? `<div class="row"><span class="tag pri">الآن</span><b class="grow">${esc(cur.name)}</b><small class="muted">تبقى ${fmtDur(sortKey(cur.start) + bMins(cur) - nm)}</small>${L[cur.id]?.s === 'done' ? `<span class="tag ok">تم</span>` : `<button class="mini ok press" data-a="done" data-id="${cur.id}" aria-label="تم">${ic('check')}</button>`}</div>${bar(Math.round((nm - sortKey(cur.start)) / bMins(cur) * 100), true)}` : ''}
+      ${nxt ? `<div class="row" style="${cur ? 'margin-top:12px' : ''}"><span class="tag">التالي</span><b class="grow">${esc(nxt.name)}</b><small class="muted">${sortKey(nxt.start) - nm <= 0 ? 'الآن' : 'بعد ' + fmtDur(sortKey(nxt.start) - nm)} · ${nxt.start}</small></div>` : ''}</div>`;
+  }
+  const evening = date === today && nm >= toMin(S.settings.reviewTime || '21:30') - 30 && !S.reviews?.[today];
+  const pastNoReview = date < today && !S.reviews?.[date] && S.log[date];
   return {
-    title: date === today ? 'اليوم' : (date < today ? 'يوم سابق' : 'يوم قادم'), brand: !R.stack.length, plus: 'addExtra',
-
+    title: date === today ? 'اليوم' : (date < today ? 'يوم سابق' : 'يوم قادم'), brand: !R.stack.length, plus: 'addChooser',
     html: `
     <div class="day-head"><div class="grow"><div class="dow">${DOW[d.getDay()]}</div><div class="dates">${fmtGreg(d)} · ${fmtHijri(d)}</div>
       <div class="day-nav"><button class="pill press" data-a="dayShift" data-n="-1">${ic('prev')}السابق</button>${date !== today ? `<button class="pill on press" data-a="dayShift" data-n="0">اليوم</button>` : ''}<button class="pill press" data-a="dayShift" data-n="1">التالي${ic('next')}</button></div></div>
       ${ring(st.pct, 78, 8)}</div>
-    <div class="card ttable"><div class="th"><span>المهمة</span><span style="text-align:center">المدة</span><span style="text-align:center">من – إلى</span><span></span></div>${rows || '<div class="empty">لا مهام في هذا اليوم</div>'}
-      <button class="add-row press" data-a="addExtra">${ic('plus')} مهمة لهذا اليوم</button></div>
+    ${evening || pastNoReview ? `<button class="card row press evening-cta" style="width:100%;text-align:right" data-a="goEvening" data-date="${date}"><span class="sym sm c-violet">${ic('moon')}</span><div class="grow"><b>مراجعة اليوم وتخطيط الغد</b><div class="muted" style="font-size:13px">دقيقتان: ما أنجزت، وأهم 3 مهام لغدك</div></div>${ic('chev')}</button>` : ''}
+    ${nowNext}
+    <div class="seg"><button class="${view === 'table' ? 'on' : ''}" data-a="dayView" data-v="table">الجدول</button><button class="${view === 'line' ? 'on' : ''}" data-a="dayView" data-v="line">الخط الزمني</button></div>
+    ${view === 'line' ? timelineHtml(date, st.tasks, L, nm) : `<div class="card ttable"><div class="th"><span>المهمة</span><span style="text-align:center">المدة</span><span style="text-align:center">من – إلى</span><span></span></div>${rows || '<div class="empty">لا مهام في هذا اليوم</div>'}
+      <div class="btns"><button class="add-row press" style="margin:0" data-a="addExtra">${ic('plus')} بوقت محدد</button><button class="add-row press" style="margin:0" data-a="addTodo">${ic('sparkle')} مرنة</button></div></div>`}
+    <div class="note" style="margin:-4px 2px 14px">مخطط ${fmtDur(st.planned)} · أنجزت ${fmtDur(st.doneMins)}</div>
     ${daily}
     ${q ? `<button class="big press" data-a="goQuit"><div class="row"><span class="sym c-violet">${ic('lock')}</span><div class="grow"><h4>عادتي</h4><p>مقفل · افتحه بـ Face ID</p></div>${ic('chev')}</div></button>` : ''}
     <div class="card row"><span class="sym sm c-amber">${ic('sparkle')}</span><div class="grow"><b style="font-size:13px" class="muted">نصيحة اليوم</b><div style="font-size:15px">${esc(tip)}</div></div></div>
@@ -471,6 +553,16 @@ VIEWS.today = () => {
     ${backupDue && !TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="exportBackup"><span class="sym sm c-slate">${ic('download')}</span><div class="grow"><b>حان وقت النسخة الاحتياطية</b><div class="muted" style="font-size:13px">احفظ نسخة مشفّرة في «الملفات» حتى لا تضيع بياناتك</div></div></button>` : ''}`
   };
 };
+function timelineHtml(date, tasks, L, nm) {
+  const K = 1.1, from = 300, to = 1440, H = (to - from) * K, today = logicalToday();
+  const items = tasks.map(t => { const a = Math.max(from, sortKey(t.start)), b = Math.min(to, sortKey(t.start) + bMins(t)); return { t, a, b }; }).filter(x => x.b > x.a);
+  let hours = ''; for (let h = 5; h <= 24; h++) hours += `<div class="tl-h" style="top:${(h * 60 - from) * K}px"><span>${pad(h % 24)}:00</span></div>`;
+  const busy = items.map(x => [x.a, x.b]).sort((p, q) => p[0] - q[0]); let gaps = '', c = date === today ? Math.max(AUTO_FROM, nm) : AUTO_FROM;
+  for (const [a, b] of [...busy, [AUTO_TO, AUTO_TO]]) { const e = Math.min(a, AUTO_TO); if (e - c >= 30) gaps += `<button class="tl-gap press" style="top:${(c - from) * K + 2}px;height:${(e - c) * K - 4}px" data-a="addInGap" data-s="${fromMin(c)}" data-e="${fromMin(e)}">${ic('plus')} فراغ ${fmtDur(e - c)}</button>`; c = Math.max(c, b); }
+  const blocks = items.map(({ t, a, b }) => { const e = L[t.id]; return `<div class="tl-b cat-bg-${t.cat} ${e?.s === 'done' ? 'done' : ''} ${e?.s === 'miss' ? 'miss' : ''} ${t.src === 'a' ? 'auto' : ''}" style="top:${(a - from) * K + 1}px;height:${Math.max(22, (b - a) * K - 2)}px"><button class="tl-t" data-a="openTask" data-id="${t.id}"><b>${esc(t.name)}</b><small>${t.start}–${t.end}</small></button>${t.preview ? '' : `<button class="tl-ok press" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button>`}</div>`; }).join('');
+  const nowLine = nm != null && nm >= from && nm <= to ? `<div class="tl-now" style="top:${(nm - from) * K}px"><span>${fromMin(nm)}</span></div>` : '';
+  return `<div class="card tl" style="height:${H + 24}px"><div class="tl-in" style="height:${H}px">${hours}${gaps}${blocks}${nowLine}</div></div>`;
+}
 function quitInfo() {
   const today = logicalToday(); const last = S.quit.relapses.length ? S.quit.relapses[S.quit.relapses.length - 1].date : S.quit.start;
   const days = Math.max(0, daysBetween(last, today));
@@ -639,7 +731,7 @@ const restBar = () => `<div class="rest-bar glass" id="restBar"><span>${ic('time
 VIEWS.plan = () => {
   const today = logicalToday(), wd = R.planWd ?? parseYmd(today).getDay();
   const ws = weekStart(today), date = addDays(ws, WEEK.indexOf(wd));
-  const items = S.routine.filter(r => r.days.includes(wd)).map(r => ({ ...r, src: 'r' })).concat(examTasks(date)).sort((a, b) => sortKey(a.start) - sortKey(b.start));
+  const items = S.routine.filter(r => r.days.includes(wd)).map(r => ({ ...r, src: 'r' })).concat(examTasks(date), date >= logicalToday() ? autoBlocks(date).map(b => ({ ...b, src: 'a', subtxt: 'تلقائي' })) : []).sort((a, b) => sortKey(a.start) - sortKey(b.start));
   const studyMin = items.filter(t => t.cat === 'study' || t.cat === 'exam').reduce((a, t) => a + durMin(t.start, t.end), 0);
   const sm = weekSummary(today);
   return {
@@ -648,6 +740,7 @@ VIEWS.plan = () => {
     <div class="card"><div class="row" style="margin-bottom:6px"><h3 class="grow" style="margin:0">${DOW[wd]}</h3><span class="tag pri">دراسة ${fmtDur(studyMin)}</span></div>
     ${items.map(t => `<button class="list-row press" style="width:100%;text-align:right" ${t.src === 'r' ? `data-a="editRoutine" data-id="${t.id}"` : ''}><i class="cat cat-${t.cat}"></i><span class="grow"><b>${esc(t.name)}</b><br><small class="muted">${t.cat === 'sport' ? workoutName(date) : t.subtxt ? esc(t.subtxt) : CATS[t.cat] || ''}${t.al?.length ? ' · ' + t.al.length + ' تذكير' : ''}</small></span><span class="tt">${t.start} – ${t.end}</span></button>`).join('') || '<div class="empty">لا شيء في هذا اليوم</div>'}
     <button class="add-row press" data-a="addRoutine">${ic('plus')} أضف إلى الروتين</button></div>
+    ${planExtrasHtml()}
     <div class="sec-h"><span>الاختبارات</span><button class="pill press" data-a="addExam">${ic('plus')} اختبار</button></div>
     <div class="card">${S.exams.length ? S.exams.slice().sort((a, b) => a.date < b.date ? -1 : 1).map(e => { const s = S.subjects.find(x => x.id === e.subject), dl = daysBetween(today, e.date); return `<div class="list-row">${s ? symHtml(s.sym, s.color, 'sm') : ''}<span class="grow"><b>${esc(e.name)}</b><br><small class="muted">${esc(s?.name || '')} · ${fmtGreg(parseYmd(e.date))} · مراجعة ${e.before} أيام × ${fmtDur(e.mins)}</small></span><span class="tag ${dl < 0 ? '' : dl <= e.before ? 'warn' : 'pri'}">${dl < 0 ? 'انتهى' : dl === 0 ? 'اليوم' : 'بعد ' + dl}</span><button class="icon-btn press" style="width:34px;height:34px" data-a="delExam" data-id="${e.id}">${ic('trash')}</button></div>`; }).join('') : '<div class="empty">أضف اختباراً، فتوزَّع مراجعته تلقائياً على الأيام التي قبله في أوقات فراغك</div>'}</div>
     <div class="sec-h"><span>ملخص آخر 7 أيام</span></div>
@@ -676,6 +769,49 @@ function weekSummary(today) {
   if (!pcts.length) tips.push('ابدأ بتأكيد مهامك يومياً ليظهر هنا ملخص واقتراحات.');
   else if (avg >= 85) tips.push('أسبوع ممتاز. حافظ على نفس الإيقاع.');
   return { avg, done, miss, reasons: rs, tips };
+}
+
+VIEWS.evening = v => {
+  const date = v.date || logicalToday(), tom = addDays(date, 1), st = dayStats(date), L = S.log[date] || {}, rv = S.reviews[date] || {};
+  const unconf = st.tasks.filter(t => !L[t.id] && !t.preview && t.cat !== 'sleep');
+  const done = st.tasks.filter(t => L[t.id]?.s === 'done').length, miss = st.tasks.filter(t => L[t.id]?.s === 'miss').length;
+  const open = S.todos.filter(t => !t.done && todoLeft(t) > 0), sel = S.top3[tom] || [];
+  return { title: 'مراجعة اليوم', html: `
+    <div class="card row">${ring(st.pct, 70, 8)}<div class="grow"><b>${DOW[parseYmd(date).getDay()]}</b><div class="muted" style="font-size:14px">أنجزت ${fmtDur(st.doneMins)} من ${fmtDur(st.planned)} مخططة<br>${done} منجزة · ${miss} فائتة · ${unconf.length} دون تأكيد</div></div></div>
+    ${unconf.length ? `<div class="card"><h3>أكّد ما بقي</h3>${unconf.map(t => `<div class="list-row"><span class="grow"><b>${esc(t.name)}</b><br><small class="muted ltr">${t.start}–${t.end}</small></span><button class="mini ok press" data-a="evDone" data-id="${t.id}" data-date="${date}">${ic('check')}</button><button class="mini no press" data-a="evMiss" data-id="${t.id}" data-date="${date}">${ic('x')}</button></div>`).join('')}</div>` : ''}
+    <form data-f="saveEvening" data-date="${date}">
+    <div class="card"><h3>كيف كان يومك؟</h3>${chipsHtml('rating', [[1, 'صعب'], [2, 'ضعيف'], [3, 'عادي'], [4, 'جيد'], [5, 'ممتاز']], rv.rating || '')}
+      <textarea class="input" name="note" style="margin-top:10px" placeholder="ما الذي نجح اليوم؟ وما الذي سأغيّره غداً؟">${esc(rv.note || '')}</textarea></div>
+    <div class="card"><h3>أهم 3 مهام للغد</h3><p class="muted" style="margin:0 0 8px;font-size:13px">تُجدول أولاً في أفضل أوقات فراغك غداً.</p>
+      ${open.length ? chipsHtml('top', open.map(t => [t.id, `${esc(t.name)} · ${fmtDur(todoLeft(t))}`]), sel, 'checkbox') : '<div class="empty" style="padding:8px">لا مهام مرنة بعد، أضف من هنا</div>'}
+      <div class="row" style="margin-top:10px"><input class="input grow" name="newTask" placeholder="مهمة جديدة للغد"><select class="input" name="newMins" style="width:96px">${[30, 45, 60, 90, 120].map(m => `<option value="${m}" ${m === 60 ? 'selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></div></div>
+    <button class="btn pri block">حفظ المراجعة وتخطيط الغد</button></form>
+    <div class="sec-h">غدك كما سيبدو</div>
+    <div class="card">${dayTasks(tom).filter(t => t.cat !== 'sleep').map(t => `<div class="list-row"><i class="cat cat-${t.cat}"></i><span class="grow">${t.top ? '★ ' : ''}${esc(t.name)}${t.src === 'a' ? ' <small class="pri-tx">تلقائي</small>' : ''}</span><span class="tt">${t.start}–${t.end}</span></div>`).join('')}</div>` };
+};
+function todoForm(t = {}) {
+  return `<label class="field"><span>المهمة</span><input class="input" name="name" value="${esc(t.name || '')}" required placeholder="مراجعة الفصل الثالث"></label>
+  <div class="two"><label class="field"><span>المدة المقدّرة</span><select class="input" name="mins">${[15, 30, 45, 60, 90, 120, 180, 240, 300, 480, 600].map(m => `<option value="${m}" ${(t.mins || 60) == m ? 'selected' : ''}>${fmtDur(m)}</option>`).join('')}</select></label>
+  <label class="field"><span>الأولوية</span><select class="input" name="prio">${[[3, 'عالية'], [2, 'متوسطة'], [1, 'منخفضة']].map(([v, l]) => `<option value="${v}" ${(t.prio || 2) == v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+  <label class="field"><span>آخر موعد (اختياري)</span><input class="input" type="date" name="due" value="${t.due || ''}" min="${logicalToday()}"></label>
+  <label class="field"><span>مرتبطة بـ</span><select class="input" name="link"><option value="">لا شيء</option>${S.subjects.map(s => `<option value="s:${s.id}" ${t.subject === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${S.projects.map(p => `<option value="p:${p.id}" ${t.project === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+  <div class="note">يوزّعها التطبيق على أوقات فراغك قبل موعدها، ويقسمها إن كانت طويلة.</div>`;
+}
+function targetForm(t = {}) {
+  return `<label class="field"><span>الهدف</span><input class="input" name="name" value="${esc(t.name || '')}" required placeholder="فيزياء"></label>
+  <div class="two"><label class="field"><span>ساعات في الأسبوع</span><input class="input" name="hours" type="number" min="0.5" max="40" step="0.5" value="${t.hours || 3}"></label>
+  <label class="field"><span>الأولوية</span><select class="input" name="prio">${[[3, 'عالية'], [2, 'متوسطة'], [1, 'منخفضة']].map(([v, l]) => `<option value="${v}" ${(t.prio || 2) == v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+  <label class="field"><span>مرتبط بـ</span><select class="input" name="link"><option value="">لا شيء</option>${S.subjects.map(s => `<option value="s:${s.id}" ${t.subject === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${S.projects.map(p => `<option value="p:${p.id}" ${t.project === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+  <div class="note">إن ربطته بمادة، تُحسب حصص الروتين لتلك المادة ضمنه، ويُكمل التطبيق الباقي في أوقات فراغك.</div>`;
+}
+function readLink(fd, o) { const l = fd.get('link') || ''; delete o.subject; delete o.project; if (l.startsWith('s:')) o.subject = l.slice(2); if (l.startsWith('p:')) o.project = l.slice(2); return o; }
+function planExtrasHtml() {
+  const today = logicalToday();
+  return `<div class="sec-h"><span>أهداف أسبوعية</span><button class="pill press" data-a="addTarget">${ic('plus')} هدف</button></div>
+  <div class="card">${S.targets.length ? S.targets.map(tg => { const k = targetWeek(tg, today), p = k.goal ? Math.min(100, Math.round(k.done / k.goal * 100)) : 0; return `<button class="list-row press" style="width:100%;text-align:right;display:block" data-a="editTarget" data-id="${tg.id}"><div class="row"><b class="grow">${esc(tg.name)}</b><small class="muted">${fmtDur(k.done)} من ${fmtDur(k.goal)}</small></div>${bar(p, true)}</button>`; }).join('') : '<div class="empty">مثلاً: فيزياء 4 ساعات أسبوعياً، فيوزّعها التطبيق على أيامك</div>'}</div>
+  <div class="sec-h"><span>مهام مرنة</span><button class="pill press" data-a="addTodo">${ic('plus')} مهمة</button></div>
+  <div class="card">${S.todos.filter(t => !t.done).length ? S.todos.filter(t => !t.done).map(t => { const left = todoLeft(t), p = Math.round((t.mins - left) / t.mins * 100); return `<button class="list-row press" style="width:100%;text-align:right;display:block" data-a="editTodo" data-id="${t.id}"><div class="row"><b class="grow">${esc(t.name)}</b>${t.due ? `<span class="tag ${daysBetween(today, t.due) <= 1 ? 'warn' : ''}">${fmtShort(t.due)}</span>` : ''}<small class="muted">بقي ${fmtDur(left)}</small></div>${bar(p, true)}</button>`; }).join('') : '<div class="empty">أضف مهاماً بلا وقت محدد، فيجد لها التطبيق وقتاً</div>'}
+  <button class="btn block sm" style="margin-top:10px" data-a="replanBtn">${ic('sparkle')} أعد جدولة باقي اليوم</button></div>`;
 }
 
 // ---------- المزيد ----------
@@ -720,6 +856,7 @@ VIEWS.settings = () => ({
     <div class="field"><span>المظهر</span>${chipsHtml('theme', [['auto', 'حسب الهاتف'], ['light', 'فاتح'], ['dark', 'ليلي']], S.settings.theme)}</div>
     <label class="field"><span>العملة</span><input class="input" name="currency" value="${esc(S.settings.currency)}"></label>
     <label class="field"><span>يبدأ اليوم الجديد عند الساعة</span><select class="input" name="dayStart">${[0, 1, 2, 3, 4, 5].map(h => `<option value="${h}" ${S.settings.dayStart === h ? 'selected' : ''}>${pad(h)}:00${h === 3 ? ' (مناسب للسهر)' : ''}</option>`).join('')}</select></label>
+    <div class="two"><label class="field"><span>أقصى وقت للجدولة التلقائية يومياً</span><select class="input" name="maxAuto">${[0, 60, 90, 120, 180, 240].map(m => `<option value="${m}" ${S.settings.maxAuto === m ? 'selected' : ''}>${m ? fmtDur(m) : 'إيقاف'}</option>`).join('')}</select></label><label class="field"><span>وقت مراجعة المساء</span><input class="input" type="time" name="reviewTime" value="${S.settings.reviewTime}"></label></div>
     ${isOwner() ? sw('إظهار قسم عادتي', 'name="quit"', S.profile.quit !== false) : ''}
     <button class="btn pri block">حفظ</button></form>
     <div class="card"><h3>الأمان والبيانات</h3>
@@ -785,7 +922,7 @@ const A = {
   done: d => {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
     if (e?.s === 'done') { setLog(date, d.id, null); render(); return; }
-    setLog(date, d.id, { s: 'done', t: Date.now() }); render(); toast(pick(CHEERS), 'ok'); checkDayComplete(date);
+    setLog(date, d.id, { s: 'done', t: Date.now() }); const td = d.id.startsWith('a:t:') && S.todos.find(x => 't:' + x.id === d.id.split(':').slice(1, 3).join(':')); if (td && todoLeft(td) <= 0) { td.done = true; save(); confetti(); toast('أنهيت المهمة كاملة: ' + td.name, 'ok'); } else toast(pick(CHEERS), 'ok'); render(); checkDayComplete(date);
   },
   miss: d => {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
@@ -796,12 +933,30 @@ const A = {
   toggleDaily: d => { const date = R.day || logicalToday(); const on = (S.log[date] || {})[d.id]?.s === 'done'; setLog(date, d.id, on ? null : { s: 'done', t: Date.now() }); render(); if (!on) checkDayComplete(date); },
   openTask: d => {
     const date = R.day || logicalToday(); const t = [...dayTasks(date)].find(x => x.id === d.id); if (!t) return;
+    if (t.src === 'a') { const td = t.ref.startsWith('t:') && S.todos.find(x => 't:' + x.id === t.ref), tg = t.ref.startsWith('g:') && S.targets.find(x => 'g:' + x.id === t.ref);
+      return sheet(t.name, `<p class="muted" style="margin-top:0">${t.start}–${t.end} · ${t.preview ? 'مقترح، يُثبَّت يومه' : 'جدولها التطبيق في وقت فراغك'}</p>${td ? `<div class="note">مهمة مرنة: بقي ${fmtDur(todoLeft(td))} من ${fmtDur(td.mins)}${td.due ? ' · آخر موعد ' + fmtShort(td.due) : ''}</div>` : ''}${tg ? `<div class="note">هدف أسبوعي: ${fmtDur(targetWeek(tg, date).done)} من ${fmtDur(targetWeek(tg, date).goal)} هذا الأسبوع</div>` : ''}
+      <div class="btns">${t.subject ? `<button class="btn" data-a="openSubject" data-id="${t.subject}">افتح المادة</button>` : ''}${t.project ? `<button class="btn" data-a="openProject" data-id="${t.project}">افتح المشروع</button>` : ''}${!t.preview && date === logicalToday() ? `<button class="btn" data-a="postpone" data-id="${t.id}">أجّلها</button>` : ''}</div>`); }
     if (t.cat === 'sport') return go('workout');
     if (t.subject && (t.cat === 'study' || t.cat === 'exam')) return go('subject', { id: t.subject });
     if (t.cat === 'sleep') return go('project', { id: 'health' });
     if (t.src === 'r') return A.editRoutine({ id: t.id });
     if (t.src === 'x') sheet('تعديل المهمة', `<form data-f="saveExtra" data-id="${t.id}" data-date="${date}">${taskFormHtml(t)}<div class="btns"><button type="button" class="btn bad" data-a="delExtra" data-id="${t.id}" data-date="${date}">حذف</button><button class="btn pri">حفظ</button></div></form>`);
   },
+  dayView: d => { S.settings.dayView = d.v; save(); render(); },
+  addChooser: () => sheet('إضافة', `<button class="list-row press" style="width:100%;text-align:right" data-a="addExtra">${ic('cal')}<span class="grow"><b>مهمة بوقت محدد</b><br><small class="muted">تختار أنت الساعة</small></span></button><button class="list-row press" style="width:100%;text-align:right" data-a="addTodo">${ic('sparkle')}<span class="grow"><b>مهمة مرنة</b><br><small class="muted">تحدد المدة والأولوية، والتطبيق يجد لها وقتاً</small></span></button><button class="list-row press" style="width:100%;text-align:right" data-a="addTarget">${ic('chart')}<span class="grow"><b>هدف أسبوعي</b><br><small class="muted">ساعات أسبوعية توزَّع على أيامك</small></span></button>`),
+  postpone: d => { const t = logicalToday(), blk = (S.plan[t] || []).find(b => b.id === d.id); setLog(t, d.id, { s: 'miss', r: 'أجّلتها', ex: true, t: Date.now() }); replanToday(); const later = (S.plan[t] || []).some(b => b.ref === blk.ref && !S.log[t]?.[b.id]); closeSheet(); render(); toast(later ? 'نُقلت إلى وقت لاحق اليوم' : 'نُقلت إلى الأيام القادمة', 'ok'); },
+  addTodo: () => sheet('مهمة مرنة', `<form data-f="saveTodo">${todoForm()}<button class="btn pri block" style="margin-top:12px">أضف وجدولها</button></form>`),
+  editTodo: d => { const t = S.todos.find(x => x.id === d.id); sheet('مهمة مرنة', `<form data-f="saveTodo" data-id="${t.id}">${todoForm(t)}<div class="note">أنجزت منها ${fmtDur(todoDone(t))}.</div><div class="btns"><button type="button" class="btn ok" data-a="finishTodo" data-id="${t.id}">انتهت</button><button type="button" class="btn bad" data-a="delTodo" data-id="${t.id}">حذف</button><button class="btn pri">حفظ</button></div></form>`); },
+  finishTodo: d => { S.todos.find(x => x.id === d.id).done = true; closeSheet(); replanToday(); render(); toast(pick(CHEERS), 'ok'); },
+  delTodo: d => { S.todos = S.todos.filter(x => x.id !== d.id); closeSheet(); replanToday(); render(); },
+  addTarget: () => sheet('هدف أسبوعي', `<form data-f="saveTarget">${targetForm()}<button class="btn pri block" style="margin-top:12px">أضف</button></form>`),
+  editTarget: d => { const t = S.targets.find(x => x.id === d.id); sheet('هدف أسبوعي', `<form data-f="saveTarget" data-id="${t.id}">${targetForm(t)}<div class="btns"><button type="button" class="btn bad" data-a="delTarget" data-id="${t.id}">حذف</button><button class="btn pri">حفظ</button></div></form>`); },
+  delTarget: d => { S.targets = S.targets.filter(x => x.id !== d.id); closeSheet(); replanToday(); render(); },
+  replanBtn: () => { replanToday('أُعيدت جدولة باقي اليوم'); render(); },
+  addInGap: d => { const s = toMin(d.s), e = Math.min(toMin(d.e), s + 60); sheet('في هذا الفراغ', `<form data-f="saveExtra" data-date="${R.day || logicalToday()}">${taskFormHtml({ start: d.s, end: fromMin(e), cat: 'other' })}<button class="btn pri block" style="margin-top:12px">إضافة</button></form><button class="btn block" style="margin-top:8px" data-a="replanBtn">${ic('sparkle')} املأه تلقائياً من مهامي المرنة</button>`); },
+  goEvening: d => go('evening', { date: d.date }),
+  evDone: d => { setLog(d.date, d.id, { s: 'done', t: Date.now() }); render(); },
+  evMiss: d => { setLog(d.date, d.id, { s: 'miss', r: 'لم يتم', t: Date.now() }); render(); },
   addExtra: () => {
     const date = R.day || logicalToday(); const s = findSlot(date, 60) ?? 600;
     sheet('مهمة لهذا اليوم', `<form data-f="saveExtra" data-date="${date}">${taskFormHtml({ start: fromMin(s), end: fromMin(s + 60), cat: 'other' })}<div class="note">اقترحت لك أول وقت فارغ في يومك.</div><button class="btn pri block" style="margin-top:12px">إضافة</button></form>`);
@@ -957,16 +1112,22 @@ function buildIcs() {
     for (const a of r.al) L.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + escT(r.name), 'TRIGGER:' + (a < 0 ? '-' : '') + 'PT' + Math.abs(a) + 'M', 'END:VALARM');
     L.push('END:VEVENT');
   }
+  L.push('BEGIN:VEVENT', 'UID:review@masar', 'DTSTAMP:' + stamp, 'DTSTART:' + dt(today, S.settings.reviewTime || '21:30'), 'DTEND:' + dt(today, fromMin(toMin(S.settings.reviewTime || '21:30') + 10)), 'RRULE:FREQ=DAILY', 'SUMMARY:' + escT('مراجعة اليوم وتخطيط الغد'), 'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + escT('مراجعة اليوم'), 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT');
   for (const e of S.exams) { const sub = S.subjects.find(s => s.id === e.subject); L.push('BEGIN:VEVENT', 'UID:exam-' + e.id + '@masar', 'DTSTAMP:' + stamp, 'DTSTART;VALUE=DATE:' + e.date.replace(/-/g, ''), 'SUMMARY:' + escT('اختبار ' + e.name + ' · ' + (sub?.name || '')), 'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + escT('اختبار ' + e.name), 'TRIGGER:-PT12H', 'END:VALARM', 'END:VEVENT'); }
   L.push('END:VCALENDAR'); return L.map(fold).join('\r\n') + '\r\n';
 }
 
 // ================= النماذج =================
 const F = {
-  saveMiss: (fd, f) => { const r = fd.get('r'); if (!r) return toast('اختر سبباً'); const note = fd.get('note').trim(); setLog(f.dataset.date, f.dataset.id, { s: 'miss', r: note ? `${r}: ${note}` : r, ex: r === 'مرض أو عذر', t: Date.now() }); closeSheet(); render(); toast(pick(MISS_MSG)); if (r === 'رغبة أو انتكاسة' && quitOn()) setTimeout(() => go('quit'), 600); checkDayComplete(f.dataset.date); },
-  saveExtra: (fd, f) => { const t = readTask(fd), date = f.dataset.date, list = S.extra[date] ||= []; if (f.dataset.id) Object.assign(list.find(x => x.id === f.dataset.id), t); else list.push({ id: uid(), ...t }); save(); closeSheet(); render(); },
-  saveRoutine: (fd, f) => { const t = readTask(fd, true); if (!t.days.length) return toast('اختر يوماً واحداً على الأقل'); if (f.dataset.id) { const r = S.routine.find(x => x.id === f.dataset.id); Object.assign(r, t); if (!fd.get('subject')) delete r.subject; } else S.routine.push({ id: uid(), ...t }); save(); closeSheet(); render(); toast('حُفظ. صدّر التذكيرات من جديد إن تغيّرت الأوقات'); },
+  saveMiss: (fd, f) => { const r = fd.get('r'); if (!r) return toast('اختر سبباً'); const note = fd.get('note').trim(); setLog(f.dataset.date, f.dataset.id, { s: 'miss', r: note ? `${r}: ${note}` : r, ex: r === 'مرض أو عذر', t: Date.now() }); closeSheet(); render(); toast(pick(MISS_MSG)); if (f.dataset.id.startsWith('a:') && f.dataset.date === logicalToday()) { replanToday(); render(); setTimeout(() => toast('أعدت جدولتها في أقرب فراغ', 'ok'), 900); } checkDayComplete(f.dataset.date); },
+  saveExtra: (fd, f) => { const t = readTask(fd), date = f.dataset.date, list = S.extra[date] ||= []; if (f.dataset.id) Object.assign(list.find(x => x.id === f.dataset.id), t); else list.push({ id: uid(), ...t }); if (date === logicalToday()) replanToday(); save(); closeSheet(); render(); },
+  saveRoutine: (fd, f) => { const t = readTask(fd, true); if (!t.days.length) return toast('اختر يوماً واحداً على الأقل'); if (f.dataset.id) { const r = S.routine.find(x => x.id === f.dataset.id); Object.assign(r, t); if (!fd.get('subject')) delete r.subject; } else S.routine.push({ id: uid(), ...t }); replanToday(); save(); closeSheet(); render(); toast('حُفظ. صدّر التذكيرات من جديد إن تغيّرت الأوقات'); },
   saveExam: fd => { S.exams.push({ id: uid(), subject: fd.get('subject'), name: fd.get('name').trim(), date: fd.get('date'), before: Math.max(1, +fd.get('before') || 5), mins: Math.max(15, +fd.get('mins') || 60) }); save(); closeSheet(); render(); toast('وُزّعت المراجعة على الأيام السابقة', 'ok'); },
+  saveTodo: (fd, f) => { const o = readLink(fd, { name: fd.get('name').trim(), mins: +fd.get('mins'), prio: +fd.get('prio'), due: fd.get('due') || '' }); if (f.dataset.id) Object.assign(S.todos.find(x => x.id === f.dataset.id), o); else S.todos.push({ id: uid(), done: false, created: logicalToday(), ...o }); closeSheet(); replanToday(); render(); const n = (S.plan[logicalToday()] || []).filter(b => b.ref.startsWith('t:') && !S.log[logicalToday()]?.[b.id]).length; toast(n ? 'جُدولت في أوقات فراغك' : 'لا فراغ اليوم، ستُجدول في الأيام القادمة', 'ok'); },
+  saveTarget: (fd, f) => { const o = readLink(fd, { name: fd.get('name').trim(), hours: Math.max(0.5, +fd.get('hours') || 1), prio: +fd.get('prio') }); if (f.dataset.id) Object.assign(S.targets.find(x => x.id === f.dataset.id), o); else S.targets.push({ id: uid(), ...o }); closeSheet(); replanToday(); render(); toast('سيُوزَّع على أيام الأسبوع', 'ok'); },
+  saveEvening: (fd, f) => { const date = f.dataset.date, tom = addDays(date, 1); let top = fd.getAll('top').slice(0, 3); const nt = (fd.get('newTask') || '').trim();
+    if (nt) { const id = uid(); S.todos.push({ id, name: nt, mins: +fd.get('newMins') || 60, prio: 3, due: tom, done: false, created: date }); top = [...top, id].slice(-3); }
+    S.reviews[date] = { rating: +fd.get('rating') || 0, note: fd.get('note').trim(), at: Date.now() }; S.top3[tom] = top; save(); back(); confetti(); toast('حُفظت المراجعة، وغدك جاهز', 'ok'); },
   saveSubject: fd => { const name = fd.get('name').trim(); S.subjects.push({ id: uid(), name, sym: fd.get('sym').trim() || name[0], color: fd.get('color') || 'violet', lessons: null, goals: [], refs: [], done: {}, review: {} }); save(); closeSheet(); render(); },
   addGoal: (fd, f) => { const o = ownerOf(f.dataset.k, f.dataset.o); const before = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); o.goals.push({ id: uid(), t: fd.get('t').trim(), w: +fd.get('w'), done: false }); save(); const after = f.dataset.k === 'p' ? projectPct(o) : subjectPct(o); render(); if (before != null && before !== after) toast(`كانت ${before}% وصارت ${after}% بعد إضافة الهدف`); },
   addMs: (fd, f) => { S.projects.find(x => x.id === f.dataset.p).milestones.push({ id: uid(), t: fd.get('t').trim(), date: fd.get('date') || '', done: false }); save(); render(); },
@@ -986,7 +1147,7 @@ const F = {
   saveRelapse: fd => { const reason = fd.get('reason') || 'غير محدد'; S.quit.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
   savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1'), fd.get('phone')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
   saveEnableSync: async fd => { const b = $('.sheet button.pri'); b.disabled = true; try { await enableSync(fd.get('pw'), fd.get('phone'), fd.get('code').trim()); closeSheet(); toast(R.sync?.state === 'ok' ? 'فُعّلت المزامنة' : 'فُعّلت، وستُرفع عند الاتصال', 'ok'); render(); } catch (e) { $('#esErr').textContent = e.message; b.disabled = false; } },
-  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); if (isOwner()) { S.profile.quit = !!fd.get('quit'); S.profile.quitSet = 1; } const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
+  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; if (isOwner()) { S.profile.quit = !!fd.get('quit'); S.profile.quitSet = 1; } const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
   pickFile: el => { const file = el.files[0]; el.value = ''; if (!file) return; R.pendingFile = { file, k: el.dataset.k, o: el.dataset.o }; sheet('إضافة ملف', `<div class="list-row">${ic('file')}<span class="grow"><b>${esc(file.name)}</b><br><small class="muted">${fmtSize(file.size)}</small></span></div><div class="note">سيُحفظ داخل التطبيق ويأخذ ${fmtSize(file.size)} من مساحة هاتفك، ويعمل دون إنترنت.</div><button class="btn pri block" style="margin-top:12px" data-a="confirmFile">أضف الملف</button>`); },
