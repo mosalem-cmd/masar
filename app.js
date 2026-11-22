@@ -66,6 +66,7 @@ const ICONS = {
   heart: '<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/>', star: '<path d="m12 3.5 2.6 5.3 5.9.8-4.3 4.2 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.6l5.9-.8z"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.8v.2"/>', up: '<path d="m6 15 6-6 6 6"/>', down: '<path d="m6 9 6 6 6-6"/>',
   cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="4.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/>', sparkle: '<path d="M12 3c.6 4.5 2.5 6.4 7 7-4.5.6-6.4 2.5-7 7-.6-4.5-2.5-6.4-7-7 4.5-.6 6.4-2.5 7-7z"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>', eyeoff: '<path d="M3 3l18 18M10.6 6a9.6 9.6 0 0 1 1.4-.1C18 5.9 21.5 12 21.5 12a16 16 0 0 1-3.2 4M6.4 7.5A16 16 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 4-.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   book: '<path d="M12 6.5C10 5 7 4.5 3.5 5v13.5c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5V20"/>'
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -130,7 +131,7 @@ async function deriveToken(secret, phone, kind) {
 const metaKey = () => 'masar.sync.' + ACC;
 const getMeta = () => { try { return JSON.parse(localStorage.getItem(metaKey()) || '{}'); } catch { return {}; } };
 const setMeta = m => localStorage.setItem(metaKey(), JSON.stringify(m));
-const remoteAcc = () => { const a = { ...accounts()[ACC] }; delete a.bio; return a; };
+const remoteAcc = () => { const a = { ...accounts()[ACC] }; delete a.bio; delete a.hbio; return a; };
 function setSync(state) { R.sync = { state, at: Date.now() }; const el = $('#syncState'); if (el) el.innerHTML = syncLabel(); }
 function syncLabel() {
   const s = R.sync?.state;
@@ -139,7 +140,7 @@ function syncLabel() {
 }
 function remoteErr(res) { return { not_found: 'لا يوجد حساب بهذا الرقم', auth: 'كلمة السر غير صحيحة', locked: 'محاولات كثيرة، انتظر 15 دقيقة', exists: 'يوجد حساب بهذا الرقم، سجّل الدخول' }[res?.error] || 'تعذّر الاتصال'; }
 async function storeRemote(id, res) {
-  const acc = accounts(), bio = acc[id]?.bio; acc[id] = { ...res.acc, ...(bio ? { bio } : {}) }; setAccounts(acc);
+  const acc = accounts(), bio = acc[id]?.bio, hbio = acc[id]?.hbio; acc[id] = { ...res.acc, ...(bio ? { bio } : {}), ...(hbio ? { hbio } : {}) }; setAccounts(acc);
   localStorage.setItem('masar.d.' + id, JSON.stringify(res.blob));
   localStorage.setItem('masar.sync.' + id, JSON.stringify({ rev: res.rev, mtime: res.mtime, dirty: false }));
 }
@@ -274,7 +275,7 @@ function defaultState(name, owner) {
   const r = (name, start, end, cat, w, al, x = {}) => ({ id: uid(), name, start, end, days: ALL.slice(), cat, w, al, ...x });
   const subj = (id, name, sym, color) => ({ id, name, sym, color, lessons: id, goals: [], refs: [], done: {}, review: {} });
   return {
-    v: 1, profile: { name, owner, quit: owner },
+    v: 1, profile: { name, owner, quit: true, quitSet: 1 },
     settings: { theme: 'auto', dayStart: 3, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
     routine: [
       r('صلاة الفجر', '05:00', '06:00', 'prayer', 2, P), r('ورد القرآن', '06:00', '07:00', 'quran', 2, [0, 15]),
@@ -294,10 +295,13 @@ function defaultState(name, owner) {
 function migrate() {
   S.library ??= []; S.exams ??= []; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
-  if (!S.profile.owner) S.profile.quit = false;
+  if (S.profile.quitSet === undefined) { S.profile.quit = true; S.profile.quitSet = 1; }
   if (S.settings.appName === 'مسار') S.settings.appName = 'MASAR';
 }
-const quitOn = () => !!(S.profile.owner && S.profile.quit);
+let OWNER_ID = null; const OWNER_P = phoneId('38449637').then(x => OWNER_ID = x).catch(() => {});
+const isOwner = () => !!ACC && ACC === OWNER_ID;
+const quitOn = () => isOwner() && S.profile.quit !== false;
+const habitsOpen = () => (R.habitUntil || 0) > Date.now();
 
 // ================= منطق اليوم =================
 function sessionKey(date) { return WORKOUT_DAYS[parseYmd(date).getDay()] || null; }
@@ -453,7 +457,7 @@ VIEWS.today = () => {
   const tip = (quitOn() && Math.random() < .35) ? pick(QUIT_TIPS) : TIPS[(parseYmd(today).getTime() / 864e5 | 0) % TIPS.length];
   return {
     title: date === today ? 'اليوم' : (date < today ? 'يوم سابق' : 'يوم قادم'), brand: !R.stack.length, plus: 'addExtra',
-    after: () => { if (q) { const m = [...QUIT_MILESTONES].reverse().find(x => q.days >= x); if (m && !S.cele['q:' + m]) { S.cele['q:' + m] = 1; save(); setTimeout(() => { confetti(); toast(MILESTONE_MSG[m], 'ok'); }, 400); } } },
+
     html: `
     <div class="day-head"><div class="grow"><div class="dow">${DOW[d.getDay()]}</div><div class="dates">${fmtGreg(d)} · ${fmtHijri(d)}</div>
       <div class="day-nav"><button class="pill press" data-a="dayShift" data-n="-1">${ic('prev')}السابق</button>${date !== today ? `<button class="pill on press" data-a="dayShift" data-n="0">اليوم</button>` : ''}<button class="pill press" data-a="dayShift" data-n="1">التالي${ic('next')}</button></div></div>
@@ -461,8 +465,7 @@ VIEWS.today = () => {
     <div class="card ttable"><div class="th"><span>المهمة</span><span style="text-align:center">المدة</span><span style="text-align:center">من – إلى</span><span></span></div>${rows || '<div class="empty">لا مهام في هذا اليوم</div>'}
       <button class="add-row press" data-a="addExtra">${ic('plus')} مهمة لهذا اليوم</button></div>
     ${daily}
-    ${q ? `<button class="big press" data-a="goQuit"><div class="row"><span class="sym c-indigo">${ic('flame')}</span><div class="grow"><h4>${q.days} ${q.days === 1 ? 'يوم' : 'أيام'} نظيفة</h4><p>أفضل سلسلة: ${q.best} · التالية: ${q.next ? q.next + ' يوماً' : 'واصل'}</p></div>${ic('chev')}</div>${q.next ? bar(Math.round(q.days / q.next * 100), true) : ''}</button>
-    <button class="urge press" data-a="goUrge">${ic('wave')} أشعر برغبة</button>` : ''}
+    ${q ? `<button class="big press" data-a="goQuit"><div class="row"><span class="sym c-violet">${ic('lock')}</span><div class="grow"><h4>عادتي</h4><p>مقفل · افتحه بـ Face ID</p></div>${ic('chev')}</div></button>` : ''}
     <div class="card row"><span class="sym sm c-amber">${ic('sparkle')}</span><div class="grow"><b style="font-size:13px" class="muted">نصيحة اليوم</b><div style="font-size:15px">${esc(tip)}</div></div></div>
     ${!TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="enableSync"><span class="sym sm c-cyan">${ic('upload')}</span><div class="grow"><b>فعّل المزامنة السحابية</b><div class="muted" style="font-size:13px">لتدخل من أي هاتف ولا تضيع بياناتك عند الحذف</div></div></button>` : ''}
     ${backupDue && !TOKEN ? `<button class="card row press" style="width:100%;text-align:right" data-a="exportBackup"><span class="sym sm c-slate">${ic('download')}</span><div class="grow"><b>حان وقت النسخة الاحتياطية</b><div class="muted" style="font-size:13px">احفظ نسخة مشفّرة في «الملفات» حتى لا تضيع بياناتك</div></div></button>` : ''}`
@@ -682,11 +685,11 @@ VIEWS.more = () => {
     title: 'المزيد',
     html: `<div class="card row"><span class="sym c-indigo" style="font-family:inherit">${esc((S.profile.name || 'م').trim()[0] || 'م')}</span><div class="grow"><h3 style="margin:0">${esc(S.profile.name || 'حسابي')}</h3><small class="muted" id="syncState">${syncLabel()}</small></div></div>
     <div class="sec-h">الأدوات</div><div class="card"><div class="grid4">
-      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${T('goHealth', 'dumbbell', 'الصحة', 'teal')}${quitOn() ? T('goQuit', 'shield', 'عاداتي', 'violet') : ''}
+      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${T('goHealth', 'dumbbell', 'الصحة', 'teal')}${quitOn() ? T('goQuit', 'shield', 'عادتي', 'violet') : ''}
       ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('exportIcs', 'bell', 'التذكيرات', 'rose')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}${T('exportBackup', 'download', 'نسخة احتياطية', 'slate')}
     </div></div>
     <button class="btn bad block" style="margin-top:8px" data-a="logout">${ic('logout')} تسجيل الخروج</button>
-    <p class="faint" style="text-align:center;font-size:12px;margin-top:18px" data-a="verTap">${esc(S.settings.appName)} · النسخة 1</p>`
+    <p class="faint" style="text-align:center;font-size:12px;margin-top:18px">${esc(S.settings.appName)} · النسخة 1</p>`
   };
 };
 VIEWS.library = () => {
@@ -717,7 +720,7 @@ VIEWS.settings = () => ({
     <div class="field"><span>المظهر</span>${chipsHtml('theme', [['auto', 'حسب الهاتف'], ['light', 'فاتح'], ['dark', 'ليلي']], S.settings.theme)}</div>
     <label class="field"><span>العملة</span><input class="input" name="currency" value="${esc(S.settings.currency)}"></label>
     <label class="field"><span>يبدأ اليوم الجديد عند الساعة</span><select class="input" name="dayStart">${[0, 1, 2, 3, 4, 5].map(h => `<option value="${h}" ${S.settings.dayStart === h ? 'selected' : ''}>${pad(h)}:00${h === 3 ? ' (مناسب للسهر)' : ''}</option>`).join('')}</select></label>
-    ${S.profile.owner ? sw('إظهار قسم عاداتي', 'name="quit"', S.profile.quit) : ''}
+    ${isOwner() ? sw('إظهار قسم عادتي', 'name="quit"', S.profile.quit !== false) : ''}
     <button class="btn pri block">حفظ</button></form>
     <div class="card"><h3>الأمان والبيانات</h3>
     ${sw('قفل بـ Face ID', 'data-c="bioToggle"', !!accounts()[ACC]?.bio)}<div class="note" style="margin-top:0">يُطلب عند فتح التطبيق وبعد دقيقة من تركه.</div>
@@ -728,11 +731,13 @@ VIEWS.settings = () => ({
     <button class="btn bad block" data-a="wipe">${ic('trash')} حذف كل بيانات الحساب من الجهاز</button>`
 });
 
-// ---------- عاداتي ----------
+// ---------- عادتي ----------
 VIEWS.quit = () => {
-  if (!quitOn()) return VIEWS.more();
+  if (!quitOn() || !habitsOpen()) { R.stack.pop(); return VIEWS[cur().v] ? VIEWS[cur().v](cur()) : VIEWS.today(); }
+  R.habitUntil = Date.now() + 5 * 60000;
   const q = quitInfo(), wk = addDays(logicalToday(), -6), ur = S.quit.urges.filter(u => u.date >= wk);
-  return { title: 'عاداتي', html: `<div class="card" style="text-align:center">${ring(q.next ? Math.round(q.days / q.next * 100) : 100, 170, 14).replace(/>\d+%</, `>${q.days}<`)}<h3 style="margin:10px 0 0">${q.days === 1 ? 'يوم نظيف' : 'أيام نظيفة'}</h3><p class="muted" style="margin:2px 0 0">${q.next ? `الهدف التالي: ${q.next} يوماً` : 'تجاوزت كل الأهداف، واصل'}</p></div>
+  const ms = [...QUIT_MILESTONES].reverse().find(x => q.days >= x);
+  return { title: 'عادتي', after: () => { if (ms && !S.cele['q:' + ms]) { S.cele['q:' + ms] = 1; save(); setTimeout(() => { confetti(); toast(MILESTONE_MSG[ms], 'ok'); }, 400); } }, html: `<div class="card" style="text-align:center">${ring(q.next ? Math.round(q.days / q.next * 100) : 100, 170, 14).replace(/>\d+%</, `>${q.days}<`)}<h3 style="margin:10px 0 0">${q.days === 1 ? 'يوم نظيف' : 'أيام نظيفة'}</h3><p class="muted" style="margin:2px 0 0">${q.next ? `الهدف التالي: ${q.next} يوماً` : 'تجاوزت كل الأهداف، واصل'}</p></div>
     <button class="urge press" data-a="goUrge">${ic('wave')} أشعر برغبة</button>
     <div class="strip"><div class="stat"><small>أفضل سلسلة</small><b>${q.best} يوم</b></div><div class="stat"><small>رغبات هذا الأسبوع</small><b>${ur.length}</b></div><div class="stat"><small>تجاوزتها</small><b class="ok-tx">${ur.filter(u => u.ok).length}</b></div><div class="stat"><small>منذ</small><b>${fmtShort(q.last)}</b></div></div>
     <div class="card"><h3>المراحل</h3><div class="chips">${QUIT_MILESTONES.map(m => `<span class="tag ${q.days >= m ? 'ok' : ''}" style="font-size:14px;padding:6px 12px">${q.days >= m ? '✓ ' : ''}${m} يوماً</span>`).join('')}</div></div>
@@ -741,6 +746,7 @@ VIEWS.quit = () => {
     <button class="btn block" data-a="relapse">سجّلت انتكاسة</button>` };
 };
 VIEWS.urge = () => {
+  if (!quitOn() || !habitsOpen()) { R.stack.pop(); return (VIEWS[cur().v] || VIEWS.today)(cur()); }
   R.urge ||= { start: Date.now(), steps: {} };
   const steps = ['قم من مكانك الآن', 'اخرج من الغرفة أو افتح الباب', 'اغسل وجهك أو توضأ', '20 قرفصاء أو مشي 5 دقائق', 'حلّ تمرين الرياضيات بالأسفل'];
   const ex = R.urge.ex ||= randomNumEx();
@@ -879,8 +885,8 @@ const A = {
   finishWorkout: () => { const t = logicalToday(), ses = S.health.sessions[t] ||= { sets: {} }; if (ses.done) return; ses.done = true;
     const sp = S.routine.find(r => r.cat === 'sport' && r.days.includes(parseYmd(t).getDay())); if (sp) setLog(t, sp.id, { s: 'done', t: Date.now() });
     save(); R.rest = null; render(); confetti(); toast('حصة منجزة! جسمك يشكرك', 'ok'); checkDayComplete(t); },
-  // عاداتي
-  goQuit: () => go('quit'), goUrge: () => { R.urge = null; go('urge'); },
+  // عادتي
+  goQuit: async () => { if (await unlockHabits()) go('quit'); }, goUrge: async () => { if (!(await unlockHabits())) return; R.urge = null; go('urge'); },
   urgeStep: d => { R.urge.steps[d.i] = !R.urge.steps[d.i]; render(); },
   urgeAnswer: () => { const v = normDigits($('#urgeAns').value).trim(), ok = R.urge.ex.a.includes(v); $('#urgeFb').innerHTML = ok ? `<span class="ok-tx">صحيح! ذهنك معك</span>` : `<span class="bad-tx">حاول مرة أخرى${R.urge.ex.h ? ' · ' + esc(R.urge.ex.h) : ''}</span>`; if (ok) { R.urge.ex = randomNumEx(); R.urge.steps[4] = true; setTimeout(render, 900); } },
   urgeDone: d => {
@@ -911,7 +917,6 @@ const A = {
   wipe: async () => { if (!(await ask('سيُحذف حسابك وكل بياناته من هذا الجهاز نهائياً.', 'حذف نهائي', 'احذف'))) return; const acc = accounts(); delete acc[ACC]; setAccounts(acc); localStorage.removeItem('masar.d.' + ACC); const id = ACC; S = null; await idbDo('kv', 'readwrite', s => s.delete('session')); const all = await idbDo('files', 'readonly', s => s.getAll()); for (const f of all || []) if (f.acc === id) await idbDo('files', 'readwrite', s => s.delete(f.id)); DEK = null; ACC = null; showAuth(Object.keys(accounts()).length ? 'login' : 'signup'); },
   enableSync: () => sheet('تفعيل المزامنة', `<form data-f="saveEnableSync"><p class="muted" style="margin-top:0">تُرفع بياناتك مشفّرة بكلمة سرك، فتدخل من أي هاتف وتجدها كما هي. لا يقرؤها أحد غيرك.</p><label class="field"><span>رقم هاتفك</span><input class="input ltr" style="display:block;text-align:left" name="phone" inputmode="tel" required></label><label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" required></label><label class="field"><span>رمز الاسترجاع (اختياري، ليعمل «نسيت كلمة السر» من هاتف آخر)</span><input class="input ltr" style="display:block" name="code" placeholder="XXXX-XXXX-XXXX-XXXX"></label><div class="err" id="esErr"></div><button class="btn pri block">تفعيل</button></form>`),
   syncNowBtn: () => syncNow({ pull: true }),
-  verTap: () => { R.taps = (R.taps || 0) + 1; clearTimeout(R.tapT); R.tapT = setTimeout(() => R.taps = 0, 2500); if (R.taps >= 7) { R.taps = 0; const on = !quitOn(); S.profile.owner = on; S.profile.quit = on; save(); render(); toast(on ? 'ظهر قسم عاداتي' : 'أُخفي قسم عاداتي', 'ok'); } },
   authMode: d => showAuth(d.m)
 };
 function findLesson(id) { return Object.values(LESSONS).flat().find(l => l.id === id); }
@@ -981,7 +986,7 @@ const F = {
   saveRelapse: fd => { const reason = fd.get('reason') || 'غير محدد'; S.quit.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
   savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1'), fd.get('phone')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
   saveEnableSync: async fd => { const b = $('.sheet button.pri'); b.disabled = true; try { await enableSync(fd.get('pw'), fd.get('phone'), fd.get('code').trim()); closeSheet(); toast(R.sync?.state === 'ok' ? 'فُعّلت المزامنة' : 'فُعّلت، وستُرفع عند الاتصال', 'ok'); render(); } catch (e) { $('#esErr').textContent = e.message; b.disabled = false; } },
-  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); if (S.profile.owner) S.profile.quit = !!fd.get('quit'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
+  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); if (isOwner()) { S.profile.quit = !!fd.get('quit'); S.profile.quitSet = 1; } const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
   pickFile: el => { const file = el.files[0]; el.value = ''; if (!file) return; R.pendingFile = { file, k: el.dataset.k, o: el.dataset.o }; sheet('إضافة ملف', `<div class="list-row">${ic('file')}<span class="grow"><b>${esc(file.name)}</b><br><small class="muted">${fmtSize(file.size)}</small></span></div><div class="note">سيُحفظ داخل التطبيق ويأخذ ${fmtSize(file.size)} من مساحة هاتفك، ويعمل دون إنترنت.</div><button class="btn pri block" style="margin-top:12px" data-a="confirmFile">أضف الملف</button>`); },
@@ -1034,7 +1039,7 @@ addEventListener('online', () => syncNow());
 let lastY = 0;
 addEventListener('scroll', () => { const y = scrollY, tb = $('#topbar'); if (!tb) return; if (y > lastY + 6 && y > 70) tb.classList.add('hide'); else if (y < lastY - 6 || y < 40) tb.classList.remove('hide'); lastY = y; }, { passive: true });
 let hiddenAt = 0;
-document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); if (saveT) { clearTimeout(saveT); saveT = null; persist(); } return; } syncNow(); if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); R.habitUntil = 0; if (['quit', 'urge'].includes(cur().v)) { R.stack = []; render(); } if (saveT) { clearTimeout(saveT); saveT = null; persist(); } return; } syncNow(); if (S && ACC && accounts()[ACC]?.bio && hiddenAt && Date.now() - hiddenAt > 60000 && $('#auth').hidden) { showLock(); return; } if (S && cur().v === 'today' && !SHEET) render(); });
 setInterval(() => {
   if (!S) return;
   const v = cur().v;
@@ -1045,16 +1050,33 @@ setInterval(() => {
 
 
 // ================= Face ID =================
-async function bioRegister() {
+async function unlockHabits() {
+  if (!quitOn()) return false;
+  if (habitsOpen()) return true;
+  const a = accounts()[ACC];
+  try {
+    if (!window.PublicKeyCredential) throw new Error('nobio');
+    if (!a.hbio) { await bioRegister('hbio'); toast('رُبط قسم عادتي بـ Face ID', 'ok'); }
+    else await bioVerify('hbio');
+    R.habitUntil = Date.now() + 5 * 60000; return true;
+  } catch {
+    return new Promise(res => {
+      sheet('افتح عادتي', `<form data-f="habitPw"><p class="muted" style="margin-top:0">تعذّر Face ID، اكتب كلمة السر.</p><label class="field"><span>كلمة السر</span><input class="input" type="password" name="pw" required></label><div class="err" id="hpErr"></div><button class="btn pri block">فتح</button></form>`);
+      F.habitPw = async fd => { try { await unwrapWith(ACC, fd.get('pw'), 'pw'); R.habitUntil = Date.now() + 5 * 60000; closeSheet(); res(true); } catch (e) { $('#hpErr').textContent = e.message; } };
+    });
+  }
+}
+
+async function bioRegister(key = 'bio') {
   const acc = accounts(), a = acc[ACC];
   const cred = await navigator.credentials.create({ publicKey: {
     rp: { name: 'MASAR' }, user: { id: enc.encode(ACC.slice(0, 32)), name: a.name || 'MASAR', displayName: a.name || 'MASAR' },
     challenge: crypto.getRandomValues(new Uint8Array(32)), pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
     authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' }, timeout: 60000, attestation: 'none' } });
-  acc[ACC].bio = b64(cred.rawId); setAccounts(acc);
+  acc[ACC][key] = b64(cred.rawId); setAccounts(acc);
 }
-async function bioVerify() {
-  const id = accounts()[ACC]?.bio; if (!id) return true;
+async function bioVerify(key = 'bio') {
+  const id = accounts()[ACC]?.[key]; if (!id) return true;
   await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{ type: 'public-key', id: ub64(id) }], userVerification: 'required', timeout: 60000 } });
   return true;
 }
@@ -1071,11 +1093,13 @@ C.bioToggle = async el => {
   } else { const acc = accounts(); delete acc[ACC].bio; setAccounts(acc); toast('أُلغي القفل بـ Face ID'); }
 };
 
+
+new MutationObserver(() => { $$('input[type=password]:not([data-eye])').forEach(i => { i.dataset.eye = 1; const w = document.createElement('span'); w.className = 'pw-wrap'; i.parentNode.insertBefore(w, i); w.append(i); const b = document.createElement('button'); b.type = 'button'; b.className = 'pw-eye'; b.setAttribute('aria-label', 'إظهار كلمة السر'); b.innerHTML = ic('eye'); b.onclick = () => { const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.innerHTML = ic(show ? 'eyeoff' : 'eye'); }; w.append(b); }); }).observe(document.body, { childList: true, subtree: true });
 // ================= التشغيل =================
 async function boot() {
   $('#tabbar').innerHTML = [['today', 'اليوم'], ['lessons', 'الدروس'], ['projects', 'المشاريع'], ['plan', 'الخطة'], ['more', 'المزيد']].map(([t, l]) => `<button class="tab press" data-a="tab" data-t="${t}">${ic(t)}<span>${l}</span></button>`).join('');
   if (!window.crypto?.subtle) { $('#auth').hidden = false; $('#auth').innerHTML = '<div class="card">يجب فتح التطبيق من رابط آمن (https).</div>'; return; }
-  await idb();
+  await idb(); await OWNER_P;
   try { const s = await idbDo('kv', 'readonly', st => st.get('session')); if (s && accounts()[s.id]) { ACC = s.id; DEK = s.key; TOKEN = s.token || null; await loadData(); syncNow(); return accounts()[ACC].bio ? showLock() : enterApp(); } } catch (e) { console.warn(e); }
   showAuth(Object.keys(accounts()).length ? 'login' : 'signup');
 }
