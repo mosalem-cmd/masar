@@ -409,6 +409,10 @@ function dayStats(date) {
   for (const t of [...tasks, ...daily]) { const e = L[t.id]; if (t.start && t.cat !== 'sleep') { pm += bMins(t); if (e?.s === 'done') dm += bMins(t); } if (e?.ex) continue; tot += t.w; if (e?.s === 'done') done += t.w; }
   return { tasks, daily, tot, done, pct: tot ? Math.round(done / tot * 100) : 0, planned: pm, doneMins: dm };
 }
+function canConfirm(date, id) {
+  const today = logicalToday(); if (date < today) return true; if (date > today) return false;
+  const t = dayTasks(date).find(x => x.id === id); return !t || !t.start || sortKey(t.start) <= nowLMin();
+}
 function setLog(date, id, val) { S.log[date] ??= {}; if (val) S.log[date][id] = val; else delete S.log[date][id]; save(); }
 function checkDayComplete(date) {
   const st = dayStats(date);
@@ -518,7 +522,7 @@ VIEWS.today = () => {
     const e = L[t.id], a = sortKey(t.start), b = a + durMin(t.start, t.end), overlap = a < prevEnd; prevEnd = Math.max(prevEnd, b);
     const isNow = nm != null && a <= nm && nm < b;
     const sub = e?.s === 'miss' ? `<small class="bad-tx">${esc(e.r)}${e.ex ? ' · مستثناة' : ''}</small>` : overlap ? `<small class="warn-tx">تتداخل مع ما قبلها</small>` : t.subtxt ? `<small class="${t.src === 'a' ? 'pri-tx' : ''}">${esc(t.subtxt)}</small>` : isNow ? `<small class="pri-tx">الآن</small>` : '';
-    rows += `<div class="tr ${e?.s === 'done' ? 'is-done' : ''} ${isNow ? 'is-now' : ''} ${t.src === 'a' ? 'is-auto' : ''}"><button class="tn" data-a="openTask" data-id="${t.id}"><i class="cat cat-${t.cat}"></i><span><b>${esc(t.name)}</b>${sub}</span></button><div class="td">${fmtDur(durMin(t.start, t.end))}</div><div class="tt">${t.start}–${t.end}</div><div class="ta">${t.preview ? '<span class="tag pri">مقترح</span>' : `<button class="mini ok press ${e?.s === 'done' ? 'on' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button><button class="mini no press ${e?.s === 'miss' ? 'on' : ''}" data-a="miss" data-id="${t.id}" aria-label="لم أفعل">${ic('x')}</button>`}</div></div>`;
+    rows += `<div class="tr ${e?.s === 'done' ? 'is-done' : ''} ${isNow ? 'is-now' : ''} ${t.src === 'a' ? 'is-auto' : ''}"><button class="tn" data-a="openTask" data-id="${t.id}"><i class="cat cat-${t.cat}"></i><span><b>${esc(t.name)}</b>${sub}</span></button><div class="td">${fmtDur(durMin(t.start, t.end))}</div><div class="tt">${t.start}–${t.end}</div><div class="ta">${t.preview ? '<span class="tag pri">مقترح</span>' : `<button class="mini ok press ${e?.s === 'done' ? 'on' : ''} ${!e && !canConfirm(date, t.id) ? 'locked' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button><button class="mini no press ${e?.s === 'miss' ? 'on' : ''}" data-a="miss" data-id="${t.id}" aria-label="لم أفعل">${ic('x')}</button>`}</div></div>`;
   }
   const daily = st.daily.length ? `<div class="card"><h3>أهداف الصحة اليومية</h3>${st.daily.map(it => { const on = L[it.id]?.s === 'done'; return `<div class="list-row"><button class="chk press ${on ? 'on' : ''}" data-a="toggleDaily" data-id="${it.id}" aria-label="تم">${ic('check')}</button><span class="grow">${esc(it.name)}</span></div>`; }).join('')}</div>` : '';
   const q = quitOn() ? quitInfo() : null;
@@ -540,6 +544,7 @@ VIEWS.today = () => {
     <div class="day-head"><div class="grow"><div class="dow">${DOW[d.getDay()]}</div><div class="dates">${fmtGreg(d)} · ${fmtHijri(d)}</div>
       <div class="day-nav"><button class="pill press" data-a="dayShift" data-n="-1">${ic('prev')}السابق</button>${date !== today ? `<button class="pill on press" data-a="dayShift" data-n="0">اليوم</button>` : ''}<button class="pill press" data-a="dayShift" data-n="1">التالي${ic('next')}</button></div></div>
       ${ring(st.pct, 78, 8)}</div>
+    ${(() => { const rem = [...st.tasks, ...st.daily].filter(t => { const e = L[t.id]; return e?.s !== 'done' && !e?.ex && !t.preview; }); return rem.length && st.pct < 100 ? `<div class="note">يُحسب في النسبة ولم يُؤكَّد بعد: ${rem.slice(0, 4).map(t => esc(t.name)).join('، ')}${rem.length > 4 ? ' و' + (rem.length - 4) + ' أخرى' : ''}</div>` : ''; })()}
     ${evening || pastNoReview ? `<button class="card row press evening-cta" style="width:100%;text-align:right" data-a="goEvening" data-date="${date}"><span class="sym sm c-violet">${ic('moon')}</span><div class="grow"><b>مراجعة اليوم وتخطيط الغد</b><div class="muted" style="font-size:13px">دقيقتان: ما أنجزت، وأهم 3 مهام لغدك</div></div>${ic('chev')}</button>` : ''}
     ${nowNext}
     <div class="seg"><button class="${view === 'table' ? 'on' : ''}" data-a="dayView" data-v="table">الجدول</button><button class="${view === 'line' ? 'on' : ''}" data-a="dayView" data-v="line">الخط الزمني</button></div>
@@ -922,6 +927,7 @@ const A = {
   done: d => {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
     if (e?.s === 'done') { setLog(date, d.id, null); render(); return; }
+    if (!canConfirm(date, d.id)) { toast('لم يحن وقتها بعد', ''); return; }
     setLog(date, d.id, { s: 'done', t: Date.now() }); const td = d.id.startsWith('a:t:') && S.todos.find(x => 't:' + x.id === d.id.split(':').slice(1, 3).join(':')); if (td && todoLeft(td) <= 0) { td.done = true; save(); confetti(); toast('أنهيت المهمة كاملة: ' + td.name, 'ok'); } else toast(pick(CHEERS), 'ok'); render(); checkDayComplete(date);
   },
   miss: d => {
@@ -955,7 +961,7 @@ const A = {
   replanBtn: () => { replanToday('أُعيدت جدولة باقي اليوم'); render(); },
   addInGap: d => { const s = toMin(d.s), e = Math.min(toMin(d.e), s + 60); sheet('في هذا الفراغ', `<form data-f="saveExtra" data-date="${R.day || logicalToday()}">${taskFormHtml({ start: d.s, end: fromMin(e), cat: 'other' })}<button class="btn pri block" style="margin-top:12px">إضافة</button></form><button class="btn block" style="margin-top:8px" data-a="replanBtn">${ic('sparkle')} املأه تلقائياً من مهامي المرنة</button>`); },
   goEvening: d => go('evening', { date: d.date }),
-  evDone: d => { setLog(d.date, d.id, { s: 'done', t: Date.now() }); render(); },
+  evDone: d => { if (!canConfirm(d.date, d.id)) return toast('لم يحن وقتها بعد', ''); setLog(d.date, d.id, { s: 'done', t: Date.now() }); render(); },
   evMiss: d => { setLog(d.date, d.id, { s: 'miss', r: 'لم يتم', t: Date.now() }); render(); },
   addExtra: () => {
     const date = R.day || logicalToday(); const s = findSlot(date, 60) ?? 600;

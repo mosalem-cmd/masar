@@ -254,3 +254,5 @@ button:disabled{opacity:.45;cursor:default}
 .tr.is-auto .tn b{color:var(--pri)}
 .evening-cta{border-color:#8B5CF6}
 .cat-bg-uni{--cc:#F59E0B;--cbg:rgba(245,158,11,.13)}
+
+.mini.ok.locked{opacity:.35}
