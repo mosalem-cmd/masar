@@ -34,7 +34,7 @@ const COLORS = ['indigo', 'cyan', 'amber', 'violet', 'teal', 'rose', 'slate'];
 const W_LBL = { 1: 'صغير', 2: 'متوسط', 3: 'كبير' };
 const PRIO_LBL = { high: 'عالية', mid: 'متوسطة', low: 'منخفضة' };
 const PRIO_ORD = { high: 0, mid: 1, low: 2 };
-const CATS = { prayer: 'صلاة', quran: 'قرآن', study: 'دراسة', sport: 'رياضة', sleep: 'نوم', project: 'مشروع', other: 'أخرى' };
+const CATS = { uni: 'جامعة', prayer: 'صلاة', quran: 'قرآن', study: 'دراسة', sport: 'رياضة', sleep: 'نوم', project: 'مشروع', other: 'أخرى' };
 
 let S = null, DEK = null, ACC = null, DB = null;
 const R = { tab: 'today', stack: [], day: null, sub: {}, planWd: null, urge: null, rest: null, ls: {}, lastRender: 0 };
@@ -1190,7 +1190,22 @@ const AUTH = {
   authRecover: async fd => { try { await recover(fd.get('phone'), fd.get('code'), fd.get('pw')); enterApp(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#authErr').textContent = e.message; } }
 };
 A.enter = () => enterApp();
-function enterApp() { $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); }
+function ownerSetup() {
+  if (!S || !isOwner()) return; S.flags ??= {};
+  if (!S.flags.uni1) {
+    S.flags.uni1 = 1; const UNI = [1, 3, 5];
+    S.routine.push({ id: uid(), name: 'الجامعة', start: '08:00', end: '14:00', days: UNI.slice(), cat: 'uni', w: 3, al: [-60, -30], note: 'دراسة حضورية' });
+    for (const [subj, start, end] of [['math', '15:00', '16:15'], ['english', '21:00', '22:00']]) {
+      const r = S.routine.find(x => x.subject === subj && x.cat === 'study'); if (!r) continue;
+      const moved = r.days.filter(d => UNI.includes(d)); if (!moved.length) continue;
+      r.days = r.days.filter(d => !UNI.includes(d));
+      S.routine.push({ ...r, id: uid(), start, end, days: moved, note: 'يوم الجامعة' });
+    }
+    delete S.plan[logicalToday()]; save();
+  }
+}
+function enterApp() {
+  ownerSetup(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); R.stack = []; R.tab = 'today'; R.day = null; render(true); }
 
 // ================= الأحداث =================
 document.addEventListener('click', e => { const el = e.target.closest('[data-a]'); if (!el || el.disabled) return; const fn = A[el.dataset.a]; if (fn) { e.preventDefault(); fn(el.dataset, el, e); } });
@@ -1245,7 +1260,7 @@ function showLock() {
   closeSheet(true); $$('.viewer').forEach(v => v.remove()); $('#app').hidden = true; const a = $('#auth'); a.hidden = false;
   a.innerHTML = `<div class="auth-card"><img class="auth-wordmark" src="icons/logo.png" alt="MASAR"><p class="sub">مرحباً ${esc(accounts()[ACC]?.name || '')}</p><div class="card" style="text-align:center"><button class="btn pri block press" style="height:58px;font-size:17px" data-a="bioUnlock">${ic('lock')} فتح بـ Face ID</button><div class="err" id="authErr"></div><button class="link" data-a="lockPw">استعمل كلمة السر</button></div></div>`;
 }
-A.bioUnlock = async () => { try { await bioVerify(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); render(); } catch { $('#authErr').textContent = 'لم يتم التحقق، حاول مرة أخرى أو استعمل كلمة السر'; } };
+A.bioUnlock = async () => { try { await bioVerify(); ownerSetup(); $('#auth').hidden = true; $('#app').hidden = false; applyTheme(); render(); } catch { $('#authErr').textContent = 'لم يتم التحقق، حاول مرة أخرى أو استعمل كلمة السر'; } };
 A.lockPw = () => { S = null; DEK = null; showAuth('login'); };
 C.bioToggle = async el => {
   if (el.checked) {
