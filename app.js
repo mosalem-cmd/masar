@@ -276,9 +276,9 @@ function defaultState(name) {
     v: 1, profile: { name, quit: false, quitSet: 1 },
     settings: { maxAuto: 120, reviewTime: '21:30', dayView: 'table', theme: 'auto', dayStart: 3, autoFrom: 420, autoTo: 1320, currency: 'أوقية', appName: 'MASAR', lastBackup: null },
     routine: [], extra: {}, log: {}, cele: {}, subjects: [], projects: [], library: [], exams: [],
-    quit: { start: t, relapses: [], urges: [] },
+    habits: [], quit: { start: t, relapses: [], urges: [] },
     health: { start: t, sessions: {}, sleep: {}, meals: {}, mealTimes: { b: '07:15', l: '14:45', d: '20:30' } },
-    lastLesson: null, todos: [], targets: [], plan: {}, reviews: {}, top3: {}, flags: { plan1: 1, plan2: 1, uni1: 1, setup: 0 }
+    lastLesson: null, todos: [], targets: [], plan: {}, reviews: {}, top3: {}, flags: { plan1: 1, plan2: 1, uni1: 1, hab1: 1, setup: 0 }
   };
 }
 // ================= الحزم الجاهزة =================
@@ -317,7 +317,9 @@ function migrate() {
   S.library ??= []; S.exams ??= []; S.todos ??= []; S.targets ??= []; S.plan ??= {}; S.reviews ??= {}; S.top3 ??= {}; S.settings.maxAuto ??= 120; S.settings.reviewTime ??= '21:30'; S.settings.dayView ??= 'table'; S.cele ??= {}; S.extra ??= {}; S.log ??= {};
   S.projects.forEach(p => { p.money ??= defaultMoney(); p.refs ??= []; p.goals ??= []; p.milestones ??= []; p.cards ??= []; });
   if (S.profile.quitSet === undefined) { S.profile.quit = false; S.profile.quitSet = 1; }
-  S.flags ??= {}; if (S.flags.setup === undefined) S.flags.setup = 1; S.settings.autoFrom ??= 420; S.settings.autoTo ??= 1320;
+  S.flags ??= {}; S.habits ??= [];
+  if (!S.flags.hab1) { S.flags.hab1 = 1; if (S.profile.quit === true) S.habits.push({ id: 'h_legacy', key: 'legacy', name: 'عادتي', kind: 'quit', start: S.quit.start, relapses: S.quit.relapses || [], urges: S.quit.urges || [], checks: {} }); }
+  if (S.flags.setup === undefined) S.flags.setup = 1; S.settings.autoFrom ??= 420; S.settings.autoTo ??= 1320;
   S.subjects.forEach(s => { s.cur ??= {}; s.written ??= []; if (s.uni === undefined) s.uni = !['math', 'physics', 'english', 'french'].includes(s.id); s.plan ??= []; if (s.goals?.length) { s.plan.push({ id: uid(), t: 'أهداف سابقة', due: '', steps: s.goals.map(g => ({ id: g.id, t: g.t, mins: 60, done: !!g.done })) }); s.goals = []; } });
   if (!S.flags.plan1) {
     S.flags.plan1 = 1;
@@ -336,8 +338,9 @@ function migrate() {
   }
   if (S.settings.appName === 'مسار') S.settings.appName = 'MASAR';
 }
-const quitOn = () => !!S && S.profile.quit === true;
-const habitsOpen = () => (R.habitUntil || 0) > Date.now();
+const quitOn = () => !!S;
+const habitLocked = () => S.settings.habitLock !== false;
+const habitsOpen = () => !habitLocked() || !S.habits.length || (R.habitUntil || 0) > Date.now();
 
 // ================= منطق اليوم =================
 function sessionKey(date) { return WORKOUT_DAYS[parseYmd(date).getDay()] || null; }
@@ -579,7 +582,6 @@ VIEWS.today = () => {
   const top = isToday ? st.tasks.filter(t => t.top && !lateIds.has(t.id)) : [];
   const topCard = top.length ? `<div class="card"><h3>★ أهم مهام اليوم</h3>${top.map(t => `<div class="list-row"><span class="grow ${L[t.id]?.s === 'done' ? 'muted' : ''}"><b dir="auto">${esc(t.name)}</b><br><small class="muted ltr">${t.start}–${t.end}</small></span>${L[t.id]?.s === 'done' ? '<span class="tag ok">تم</span>' : `<button class="mini ok press ${!canConfirm(date, t.id) ? 'locked' : ''}" data-a="done" data-id="${t.id}" aria-label="تم">${ic('check')}</button>`}</div>`).join('')}</div>` : '';
   const daily = st.daily.length ? `<div class="card"><h3>أهداف الصحة اليومية</h3>${st.daily.map(it => { const on = L[it.id]?.s === 'done'; return `<div class="list-row"><button class="chk press ${on ? 'on' : ''}" data-a="toggleDaily" data-id="${it.id}" aria-label="تم">${ic('check')}</button><span class="grow">${esc(it.name)}</span></div>`; }).join('')}</div>` : '';
-  const q = quitOn() ? quitInfo() : null;
   const backupDue = !S.settings.lastBackup || daysBetween(S.settings.lastBackup, today) >= 7;
   const tip = TIPS[(parseYmd(today).getTime() / 864e5 | 0) % TIPS.length];
   // الآن والتالي
@@ -604,7 +606,7 @@ VIEWS.today = () => {
 </div>`}
     <div class="sumline"><span>مخطط ${fmtDur(st.planned)} · أنجزت ${fmtDur(st.doneMins)}</span><button class="pill press" data-a="dayView" data-v="${view === 'line' ? 'table' : 'line'}">${view === 'line' ? 'عرض الجدول' : 'الخط الزمني'}</button></div>
     ${daily}
-    ${q ? `<button class="big press" data-a="goQuit"><div class="row"><span class="sym c-violet">${ic('lock')}</span><div class="grow"><h4>عادتي</h4><p>مقفل · افتحه بـ Face ID</p></div>${ic('chev')}</div></button>` : ''}
+    <button class="big press" data-a="goQuit"><div class="row"><span class="sym c-violet">${ic(S.habits.length && habitLocked() ? 'lock' : 'shield')}</span><div class="grow"><h4>عادتي</h4><p>${S.habits.length ? (habitLocked() ? 'مقفل · افتحه بـ Face ID' : S.habits.map(h => esc(h.name)).slice(0, 3).join('، ')) : 'اختر عادة تريد تركها أو بناءها'}</p></div>${ic('chev')}</div></button>
     ${(!TOKEN && backupDue) ? `<button class="note press" style="width:100%;text-align:right" data-a="goSettings">احفظ نسخة احتياطية أو فعّل المزامنة من «الإعدادات» حتى لا تضيع بياناتك ›</button>` : ''}`
   };
 };
@@ -618,12 +620,41 @@ function timelineHtml(date, tasks, L, nm) {
   const nowLine = nm != null && nm >= from && nm <= to ? `<div class="tl-now" style="top:${(nm - from) * K}px"><span>${fromMin(nm)}</span></div>` : '';
   return `<div class="card tl" style="height:${H + 24}px"><div class="tl-in" style="height:${H}px">${hours}${gaps}${blocks}${nowLine}</div></div>`;
 }
-function quitInfo() {
-  const today = logicalToday(); const last = S.quit.relapses.length ? S.quit.relapses[S.quit.relapses.length - 1].date : S.quit.start;
+const H_QUIT = [['smoke', 'التدخين'], ['phone', 'الإفراط في الهاتف ووسائل التواصل'], ['sugar', 'السكريات والحلويات'], ['late', 'السهر'], ['proc', 'التسويف'], ['caffeine', 'الإفراط في القهوة والشاي'], ['games', 'الإفراط في الألعاب'], ['porn', 'المحتوى الإباحي'], ['soda', 'المشروبات الغازية'], ['spend', 'الإنفاق الزائد'], ['nails', 'قضم الأظافر']];
+const H_BUILD = [['water', 'شرب الماء'], ['read', 'القراءة'], ['walk', 'المشي'], ['quran', 'الذكر والقرآن'], ['early', 'النوم المبكر'], ['med', 'التأمل']];
+const H_TIPS = {
+  smoke: ['أخبر من حولك أنك تقلع، فالدعم يضاعف النجاح.', 'أبعد السجائر والولاعات من البيت والسيارة.', 'عند الرغبة: اشرب ماءً بارداً وتنفّس بعمق 10 مرات.', 'استبدل لحظة التدخين المعتادة (بعد القهوة، بعد الأكل) بمشي قصير.', 'ادّخر ثمن العلب وتابع المبلغ.'],
+  phone: ['اجعل الشاحن خارج غرفة النوم.', 'عطّل إشعارات التطبيقات غير الضرورية.', 'حدّد وقتاً يومياً للتطبيقات وأقفلها بعده.', 'عند الملل: ابدأ مهمة صغيرة من قائمتك بدل التصفح.'],
+  sugar: ['لا تشترِ الحلويات للبيت، فما لا تراه لا تأكله.', 'اشرب ماءً قبل أن تقرر.', 'استبدلها بالفاكهة أو المكسرات.', 'حدّد يوماً أسبوعياً للسماح بقطعة صغيرة دون ذنب.'],
+  late: ['حدّد وقتاً ثابتاً للنوم وفعّل منبّهاً قبله بساعة.', 'أطفئ الشاشات قبل النوم بنصف ساعة.', 'لا كافيين بعد العصر.'],
+  proc: ['ابدأ بدقيقتين فقط، فالبداية هي الأصعب.', 'قسّم المهمة الكبيرة إلى خطوة واحدة واضحة.', 'اختر 3 مهام لغدك مساء اليوم.', 'أبعد المشتتات عنك وقت العمل.'],
+  caffeine: ['قلّل كوباً واحداً كل أسبوع لا دفعة واحدة.', 'اشرب الماء أولاً صباحاً.', 'لا كافيين بعد الظهر.'],
+  games: ['حدّد عدد المباريات أو الساعة التي تتوقف عندها قبل أن تبدأ.', 'ابدأ بمهامك ثم العب كمكافأة.', 'احذف اللعبة الأكثر استهلاكاً لوقتك.'],
+  porn: ['الهاتف خارج غرفة النوم في الليل.', 'لا تبقَ في السرير مستيقظاً مع شاشة.', 'عند الملل أو الوحدة: أخرج من الغرفة أو ابدأ مهمة صغيرة.', 'فعّل حجب المواقع على جهازك.'],
+  soda: ['استبدلها بماء فوّار مع شريحة ليمون.', 'لا تحتفظ بها في البيت.', 'قلّل تدريجياً حتى تتوقف.'],
+  spend: ['أجّل أي شراء غير ضروري 24 ساعة.', 'سجّل كل مصروف في المشروع المالي.', 'احذف تطبيقات التسوق من هاتفك.'],
+  nails: ['اقصّ أظافرك قصيرة دائماً.', 'انتبه للمحفّز (توتر، ملل) واستبدله بمطاطة أو كرة ضغط.']
+};
+const H_TIPS_GEN = ['اكتب لماذا تريد هذا التغيير ورتّب ذلك أمام عينيك.', 'حدّد المحفّز (وقت، مكان، شعور) وتجنّبه أو استبدله.', 'كل رغبة تسجّلها هنا تكشف لك أوقاتها وأسبابها.', 'إن انتكست: سجّل السبب وعدّل الخطة دون جلد للذات.'];
+const H_BUILD_TIPS = ['اربطها بعادة موجودة (بعد الصلاة، بعد القهوة).', 'ابدأ بحجم صغير جداً، ثم زده تدريجياً.', 'لا تفوّت يومين متتاليين.'];
+const H_REASONS = { smoke: ['بعد الأكل', 'مع القهوة', 'توتر', 'مع الأصدقاء', 'ملل', 'أخرى'], porn: ['ملل', 'وحدة', 'تعب', 'توتر', 'ليل وسرير', 'الهاتف', 'أخرى'] };
+const H_STEPS = { smoke: ['اشرب كوب ماء بارد', 'تنفّس بعمق 10 مرات', 'امضغ علكة أو اشرب شاياً', 'امشِ 5 دقائق', 'حلّ تمرين الرياضيات بالأسفل'] };
+const H_STEPS_GEN = ['قم من مكانك الآن', 'اخرج من الغرفة أو افتح الباب', 'اغسل وجهك أو توضأ', '20 قرفصاء أو مشي 5 دقائق', 'حلّ تمرين الرياضيات بالأسفل'];
+const habitOf = id => S.habits.find(h => h.id === id);
+function quitInfo(h) {
+  const today = logicalToday(); const last = h.relapses.length ? h.relapses[h.relapses.length - 1].date : h.start;
   const days = Math.max(0, daysBetween(last, today));
-  let best = days, prev = S.quit.start; for (const r of S.quit.relapses) { best = Math.max(best, daysBetween(prev, r.date)); prev = r.date; }
+  let best = days, prev = h.start; for (const r of h.relapses) { best = Math.max(best, daysBetween(prev, r.date)); prev = r.date; }
   return { days, best, next: QUIT_MILESTONES.find(m => m > days) || null, last };
 }
+function buildInfo(h) {
+  const today = logicalToday(); let d = h.checks[today] ? today : addDays(today, -1), cur = 0;
+  while (h.checks[d]) { cur++; d = addDays(d, -1); }
+  const ds = Object.keys(h.checks).sort(); let best = 0, run = 0, prev = null;
+  for (const x of ds) { run = prev && daysBetween(prev, x) === 1 ? run + 1 : 1; best = Math.max(best, run); prev = x; }
+  return { cur, best, total: ds.length, today: !!h.checks[today] };
+}
+const habitStreak = h => h.kind === 'quit' ? quitInfo(h).days : buildInfo(h).cur;
 
 // ---------- الدروس ----------
 function planLine(s, L, n) { const st = (s.plan || []).flatMap(g => g.steps), parts = []; if (L.length) parts.push(`${n} من ${L.length} دروس`); if (s.plan?.length) parts.push(`${s.plan.length} أهداف كبرى · ${st.filter(x => x.done).length} من ${st.length} خطوة`); return parts.join(' · ') || 'أضف هدفاً كبيراً'; }
@@ -946,7 +977,7 @@ VIEWS.more = () => {
     title: 'المزيد',
     html: `<div class="card row"><span class="sym c-indigo" style="font-family:inherit">${esc((S.profile.name || 'م').trim()[0] || 'م')}</span><div class="grow"><h3 style="margin:0">${esc(S.profile.name || 'حسابي')}</h3><small class="muted" id="syncState">${syncLabel()}</small></div></div>
     <div class="sec-h">الأدوات</div><div class="card"><div class="grid4">
-      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${S.projects.some(p => p.id === 'health') ? T('goHealth', 'dumbbell', 'الصحة', 'teal') : ''}${quitOn() ? T('goQuit', 'shield', 'عادتي', 'violet') : ''}
+      ${T('goLibrary', 'library', 'المكتبة', 'indigo')}${T('goStats', 'chart', 'الإحصائيات', 'cyan')}${S.projects.some(p => p.id === 'health') ? T('goHealth', 'dumbbell', 'الصحة', 'teal') : ''}${T('goQuit', 'shield', 'عادتي', 'violet')}
       ${T('goReview', 'timer', 'المراجعة', 'amber')}${T('goSettings', 'gear', 'الإعدادات', 'slate')}
     </div></div>
     <p class="faint" style="text-align:center;font-size:12px;margin-top:18px">${esc(S.settings.appName)} · النسخة 1</p>`
@@ -967,9 +998,9 @@ VIEWS.stats = () => {
   const act = P.filter(([d]) => S.log[d] && Object.keys(S.log[d]).length);
   const avg = act.length ? Math.round(act.reduce((a, [, p]) => a + p, 0) / act.length) : 0;
   let streak = 0; for (let i = 1; i <= 60; i++) { const d = addDays(today, -i); if (S.log[d] && dayStats(d).pct >= 80) streak++; else break; }
-  const sm = weekSummary(today), q = quitOn() ? quitInfo() : null;
+  const sm = weekSummary(today), q = S.habits.length ? { days: Math.max(...S.habits.map(habitStreak)) } : null;
   const sl = days.slice(7).map(d => S.health.sleep[d]).filter(x => x?.bed); const sAvg = sl.length ? (sl.reduce((a, x) => a + durMin(x.bed, x.wake), 0) / sl.length / 60).toFixed(1) : '—';
-  return { title: 'الإحصائيات', html: `<div class="strip"><div class="stat"><small>متوسط 14 يوماً</small><b>${avg}%</b></div><div class="stat"><small>أيام متتالية ≥80%</small><b>${streak}</b></div><div class="stat"><small>متوسط النوم</small><b>${sAvg}</b></div>${q ? `<div class="stat"><small>أيام نظيفة</small><b>${q.days}</b></div>` : ''}</div>
+  return { title: 'الإحصائيات', html: `<div class="strip"><div class="stat"><small>متوسط 14 يوماً</small><b>${avg}%</b></div><div class="stat"><small>أيام متتالية ≥80%</small><b>${streak}</b></div><div class="stat"><small>متوسط النوم</small><b>${sAvg}</b></div>${q ? `<div class="stat"><small>أطول سلسلة عادات</small><b>${q.days}</b></div>` : ''}</div>
     <div class="card"><h3>نسبة الإنجاز اليومية</h3><div class="bars">${P.map(([d, p]) => `<div class="b"><i style="height:${p}%" class="${p >= 100 ? 'full' : ''}"></i><small>${parseYmd(d).getDate()}</small></div>`).join('')}</div></div>
     <div class="card"><h3>أسباب عدم الإنجاز (7 أيام)</h3>${sm.reasons.length ? sm.reasons.map(([r, n]) => `<div class="list-row"><span class="grow">${esc(r)}</span><span class="tag bad">${n}</span></div>`).join('') : '<div class="empty">لا شيء مسجّل</div>'}</div>
     <div class="card"><h3>الدروس</h3>${S.subjects.map(s => `<div class="list-row">${symHtml(s.sym, s.color, 'sm')}<span class="grow">${esc(s.name)}${bar(subjectPct(s), true)}</span><b>${subjectPct(s)}%</b></div>`).join('')}</div>` };
@@ -982,7 +1013,7 @@ VIEWS.settings = () => ({
     <label class="field"><span>يبدأ اليوم الجديد عند الساعة</span><select class="input" name="dayStart">${[0, 1, 2, 3, 4, 5].map(h => `<option value="${h}" ${S.settings.dayStart === h ? 'selected' : ''}>${pad(h)}:00${h === 3 ? ' (مناسب للسهر)' : ''}</option>`).join('')}</select></label>
     <div class="two"><label class="field"><span>أقصى وقت للجدولة التلقائية يومياً</span><select class="input" name="maxAuto">${[0, 60, 90, 120, 180, 240].map(m => `<option value="${m}" ${S.settings.maxAuto === m ? 'selected' : ''}>${m ? fmtDur(m) : 'إيقاف'}</option>`).join('')}</select></label><label class="field"><span>وقت مراجعة المساء</span><input class="input" type="time" name="reviewTime" value="${S.settings.reviewTime}"></label></div>
     <div class="two"><label class="field"><span>الجدولة التلقائية من</span><select class="input" name="autoFrom">${[360, 390, 420, 450, 480, 540, 600].map(m => `<option value="${m}" ${S.settings.autoFrom === m ? 'selected' : ''}>${fromMin(m)}</option>`).join('')}</select></label><label class="field"><span>إلى</span><select class="input" name="autoTo">${[1200, 1260, 1320, 1380, 1440].map(m => `<option value="${m}" ${S.settings.autoTo === m ? 'selected' : ''}>${fromMin(m % 1440)}</option>`).join('')}</select></label></div>
-    ${sw('تفعيل قسم «عادتي» الخاص (يُقفل بـ Face ID)', 'name="quit"', quitOn())}
+    ${sw('قفل قسم «عادتي» بـ Face ID', 'name="hlock"', habitLocked())}
     <button class="btn pri block">حفظ</button></form>
     <div class="card"><h3>الحزم الجاهزة</h3><div class="note" style="margin-top:0">أضف روتيناً أو مادة جاهزة (مناهج واختبارات) إلى حسابك متى شئت.</div><button class="btn block" data-a="showSetupBtn">فتح الإعداد والحزم</button></div>
     <div class="card"><h3>الأمان والبيانات</h3>
@@ -998,28 +1029,40 @@ VIEWS.settings = () => ({
 
 // ---------- عادتي ----------
 VIEWS.quit = () => {
-  if (!quitOn() || !habitsOpen()) { R.stack.pop(); return VIEWS[cur().v] ? VIEWS[cur().v](cur()) : VIEWS.today(); }
+  if (!habitsOpen()) { R.stack.pop(); return VIEWS[cur().v] ? VIEWS[cur().v](cur()) : VIEWS.today(); }
   R.habitUntil = Date.now() + 5 * 60000;
-  const q = quitInfo(), wk = addDays(logicalToday(), -6), ur = S.quit.urges.filter(u => u.date >= wk);
-  const ms = [...QUIT_MILESTONES].reverse().find(x => q.days >= x);
-  return { title: 'عادتي', after: () => { if (ms && !S.cele['q:' + ms]) { S.cele['q:' + ms] = 1; save(); setTimeout(() => { confetti(); toast(MILESTONE_MSG[ms], 'ok'); }, 400); } }, html: `<div class="card" style="text-align:center">${ring(q.next ? Math.round(q.days / q.next * 100) : 100, 170, 14).replace(/>\d+%</, `>${q.days}<`)}<h3 style="margin:10px 0 0">${q.days === 1 ? 'يوم نظيف' : 'أيام نظيفة'}</h3><p class="muted" style="margin:2px 0 0">${q.next ? `الهدف التالي: ${q.next} يوماً` : 'تجاوزت كل الأهداف، واصل'}</p></div>
-    <button class="urge press" data-a="goUrge">${ic('wave')} أشعر برغبة</button>
+  const hs = S.habits; let h = habitOf(R.hab) || hs[0]; if (h) R.hab = h.id;
+  const chips = hs.length ? `<div class="fbar">${hs.map(x => `<button class="pill press ${x.id === h.id ? 'on' : ''}" data-a="selHab" data-id="${x.id}">${esc(x.name)}</button>`).join('')}<button class="pill press" data-a="addHabit">+ عادة</button></div>` : '';
+  if (!h) return { title: 'عادتي', html: `<div class="card empty" style="padding:28px 16px"><b>ابدأ بعادة واحدة</b><p class="muted">اختر عادة تريد تركها أو عادة تريد بناءها، ويُرتَّب لك كل شيء حولها.</p><button class="btn pri" data-a="addHabit">اختيار عادة</button></div>` };
+  const tips = (h.kind === 'quit' ? (H_TIPS[h.key] || H_TIPS_GEN) : H_BUILD_TIPS), plan = `<div class="card"><h3>خطتي</h3>${tips.map(t => `<div class="list-row">${ic('check', 'ok-tx')}<span class="grow">${esc(t)}</span></div>`).join('')}</div>`;
+  const manage = `<button class="btn block" style="margin-top:6px" data-a="editHabit" data-id="${h.id}">إدارة هذه العادة</button>`;
+  if (h.kind === 'build') {
+    const b = buildInfo(h), t = logicalToday(), days = Array.from({ length: 14 }, (_, i) => addDays(t, i - 13));
+    return { title: 'عادتي', html: `${chips}<div class="card" style="text-align:center">${ring(Math.min(100, Math.round(b.cur / 21 * 100)), 150, 12).replace(/>\d+%</, `>${b.cur}<`)}<h3 style="margin:10px 0 0">${esc(h.name)}</h3><p class="muted" style="margin:2px 0 8px">${b.cur === 1 ? 'يوم متتالٍ' : 'أيام متتالية'}${b.cur < 21 ? ' · الهدف 21 يوماً' : ''}</p>
+      <button class="btn ${b.today ? '' : 'pri'} block" data-a="checkHabit" data-id="${h.id}">${b.today ? '✓ أنجزتها اليوم (اضغط للتراجع)' : 'أنجزتها اليوم'}</button></div>
+      <div class="strip"><div class="stat"><small>أفضل سلسلة</small><b>${b.best} يوم</b></div><div class="stat"><small>إجمالي الأيام</small><b>${b.total}</b></div></div>
+      <div class="card"><h3>آخر 14 يوماً</h3><div class="chips">${days.map(d => `<span class="tag ${h.checks[d] ? 'ok' : ''}" style="min-width:34px;text-align:center">${parseYmd(d).getDate()}</span>`).join('')}</div></div>${plan}${manage}` };
+  }
+  const q = quitInfo(h), wk = addDays(logicalToday(), -6), ur = h.urges.filter(u => u.date >= wk), ms = [...QUIT_MILESTONES].reverse().find(x => q.days >= x), ck = 'q:' + h.id + ':' + ms;
+  return { title: 'عادتي', after: () => { if (ms && !S.cele[ck]) { S.cele[ck] = 1; save(); setTimeout(() => { confetti(); toast(MILESTONE_MSG[ms], 'ok'); }, 400); } }, html: `${chips}<div class="card" style="text-align:center">${ring(q.next ? Math.round(q.days / q.next * 100) : 100, 170, 14).replace(/>\d+%</, `>${q.days}<`)}<h3 style="margin:10px 0 0">${esc(h.name)} · ${q.days === 1 ? 'يوم نظيف' : 'أيام نظيفة'}</h3><p class="muted" style="margin:2px 0 0">${q.next ? `الهدف التالي: ${q.next} يوماً` : 'تجاوزت كل الأهداف، واصل'}</p></div>
+    <button class="urge press" data-a="goUrge" data-id="${h.id}">${ic('wave')} أشعر برغبة</button>
     <div class="strip"><div class="stat"><small>أفضل سلسلة</small><b>${q.best} يوم</b></div><div class="stat"><small>رغبات هذا الأسبوع</small><b>${ur.length}</b></div><div class="stat"><small>تجاوزتها</small><b class="ok-tx">${ur.filter(u => u.ok).length}</b></div><div class="stat"><small>منذ</small><b>${fmtShort(q.last)}</b></div></div>
     <div class="card"><h3>المراحل</h3><div class="chips">${QUIT_MILESTONES.map(m => `<span class="tag ${q.days >= m ? 'ok' : ''}" style="font-size:14px;padding:6px 12px">${q.days >= m ? '✓ ' : ''}${m} يوماً</span>`).join('')}</div></div>
-    <div class="card"><h3>خطتي</h3>${['الهاتف خارج غرفة النوم من 22:30.', 'لا أبقى في السرير مستيقظاً مع شاشة.', 'عند الملل أو الوحدة: أخرج من الغرفة أو أبدأ مهمة صغيرة.', 'كل رغبة أسجّلها هنا، فأعرف أوقاتها وأسبابها.', 'إن انتكست: أسجّل السبب وأعدّل الخطة، دون جلد للذات.'].map(t => `<div class="list-row">${ic('check', 'ok-tx')}<span class="grow">${t}</span></div>`).join('')}</div>
-    ${S.quit.relapses.length ? `<div class="card"><h3>سجل الانتكاسات</h3>${S.quit.relapses.slice(-5).reverse().map(r => `<div class="list-row"><span class="grow">${esc(r.reason)}${r.note ? `<br><small class="muted">${esc(r.note)}</small>` : ''}</span><span class="tag">${fmtShort(r.date)}</span></div>`).join('')}</div>` : ''}
-    <button class="btn block" data-a="relapse">سجّلت انتكاسة</button>` };
+    ${plan}
+    ${h.relapses.length ? `<div class="card"><h3>سجل الانتكاسات</h3>${h.relapses.slice(-5).reverse().map(r => `<div class="list-row"><span class="grow">${esc(r.reason)}${r.note ? `<br><small class="muted">${esc(r.note)}</small>` : ''}</span><span class="tag">${fmtShort(r.date)}</span></div>`).join('')}</div>` : ''}
+    <button class="btn block" data-a="relapse" data-id="${h.id}">سجّلت انتكاسة</button>${manage}` };
 };
 VIEWS.urge = () => {
-  if (!quitOn() || !habitsOpen()) { R.stack.pop(); return (VIEWS[cur().v] || VIEWS.today)(cur()); }
-  R.urge ||= { start: Date.now(), steps: {} };
-  const steps = ['قم من مكانك الآن', 'اخرج من الغرفة أو افتح الباب', 'اغسل وجهك أو توضأ', '20 قرفصاء أو مشي 5 دقائق', 'حلّ تمرين الرياضيات بالأسفل'];
+  const h = habitOf(R.urge?.hab || R.hab);
+  if (!h || !habitsOpen()) { R.stack.pop(); return (VIEWS[cur().v] || VIEWS.today)(cur()); }
+  R.urge ||= { start: Date.now(), steps: {}, hab: h.id };
+  const steps = H_STEPS[h.key] || H_STEPS_GEN, reasons = H_REASONS[h.key] || ['ملل', 'وحدة', 'تعب', 'توتر', 'الهاتف', 'أخرى'];
   const ex = R.urge.ex ||= randomNumEx();
   return { title: 'لحظة', html: `<div class="card" style="text-align:center"><div class="timer"><svg width="200" height="200" viewBox="0 0 200 200"><circle cx="100" cy="100" r="90" class="ring-bg" stroke-width="12"/><circle id="urgeRing" cx="100" cy="100" r="90" class="ring-fg" stroke-width="12" stroke-dasharray="565.5" stroke-dashoffset="0" transform="rotate(-90 100 100)"/></svg><span class="t" data-tick="urge">10:00</span></div>
     <p style="margin:0;font-weight:800">الرغبة موجة تعلو ثم تهبط. انتظر 10 دقائق فقط.</p></div>
-    <div class="card">${steps.map((s, i) => `<div class="list-row"><button class="chk press ${R.urge.steps[i] ? 'on' : ''}" data-a="urgeStep" data-i="${i}">${ic('check')}</button><span class="grow">${s}</span></div>`).join('')}</div>
+    <div class="card">${steps.map((t, i) => `<div class="list-row"><button class="chk press ${R.urge.steps[i] ? 'on' : ''}" data-a="urgeStep" data-i="${i}">${ic('check')}</button><span class="grow">${esc(t)}</span></div>`).join('')}</div>
     <div class="card"><h3>تمرين</h3><div class="ex"><div class="q">${esc(ex.q)}</div><div class="ans"><input class="input" id="urgeAns" inputmode="numeric" placeholder="الجواب"><button class="btn pri" data-a="urgeAnswer">تحقق</button></div><div class="fb" id="urgeFb"></div></div></div>
-    <div class="card"><h3>ما السبب؟</h3>${chipsHtml('ur', ['ملل', 'وحدة', 'تعب', 'توتر', 'ليل وسرير', 'الهاتف', 'أخرى'].map(x => [x, x]), R.urge.reason || '')}</div>
+    <div class="card"><h3>ما السبب؟</h3>${chipsHtml('ur', reasons.map(x => [x, x]), R.urge.reason || '')}</div>
     <div class="btns"><button class="btn ok press" data-a="urgeDone" data-ok="1">${ic('check')} مرّت الرغبة</button><button class="btn press" data-a="urgeDone" data-ok="0">انتكست</button></div>` };
 };
 function randomNumEx() { const all = []; Object.values(LESSONS).flat().forEach(l => l.ex.forEach(e => e.t === 'num' && all.push(e))); return pick(all); }
@@ -1069,7 +1112,7 @@ const A = {
   miss: d => {
     const date = R.day || logicalToday(), e = (S.log[date] || {})[d.id];
     if (e?.s === 'miss') { setLog(date, d.id, null); closeSheet(); render(); return; }
-    const reasons = ['تعب', 'نسيت', 'المهمة صعبة', 'وقت غير كافٍ', ...(quitOn() ? ['رغبة أو انتكاسة'] : []), 'مرض أو عذر', 'سبب آخر'];
+    const reasons = ['تعب', 'نسيت', 'المهمة صعبة', 'وقت غير كافٍ', ...(S.habits.some(h => h.kind === 'quit') ? ['رغبة أو انتكاسة'] : []), 'مرض أو عذر', 'سبب آخر'];
     sheet('لماذا لم تُنجزها؟', `<form data-f="saveMiss" data-id="${d.id}" data-date="${date}">${chipsHtml('r', reasons.map(r => [r, r]), '')}<label class="field" style="margin-top:12px"><span>تفاصيل (اختياري)</span><input class="input" name="note" placeholder="ما الذي حدث؟"></label><div class="note">«مرض أو عذر» لا يُحسب ضدك في النسبة.</div><button class="btn pri block" style="margin-top:12px">حفظ</button></form>`);
   },
   toggleDaily: d => { const date = R.day || logicalToday(); const on = (S.log[date] || {})[d.id]?.s === 'done'; setLog(date, d.id, on ? null : { s: 'done', t: Date.now() }); render(); if (!on) checkDayComplete(date); },
@@ -1209,16 +1252,25 @@ const A = {
     const sp = S.routine.find(r => r.cat === 'sport' && r.days.includes(parseYmd(t).getDay())); if (sp) setLog(t, sp.id, { s: 'done', t: Date.now() });
     save(); R.rest = null; render(); confetti(); toast('حصة منجزة! جسمك يشكرك', 'ok'); checkDayComplete(t); },
   // عادتي
-  goQuit: async () => { if (await unlockHabits()) go('quit'); }, goUrge: async () => { if (!(await unlockHabits())) return; R.urge = null; go('urge'); },
+  goQuit: async () => { if (await unlockHabits()) go('quit'); }, goUrge: async d => { if (!(await unlockHabits())) return; R.urge = { start: Date.now(), steps: {}, hab: d.id || R.hab }; go('urge'); },
+  selHab: d => { R.hab = d.id; render(); },
+  checkHabit: d => { const h = habitOf(d.id), t = logicalToday(); if (h.checks[t]) delete h.checks[t]; else { h.checks[t] = 1; confetti(); } save(); render(); },
+  addHabit: () => sheet('اختر عاداتك', `<form data-f="saveHabits"><p class="muted" style="margin-top:0">اختر واحدة أو أكثر، أو اكتب عادتك بنفسك.</p>
+    <div class="field"><span>عادات أريد تركها</span>${H_QUIT.map(([k, n]) => `<label class="list-row" style="gap:10px"><input type="checkbox" name="hq" value="${k}" ${S.habits.some(h => h.key === k) ? 'disabled' : ''}><span class="grow">${esc(n)}</span></label>`).join('')}</div>
+    <div class="field"><span>عادات أريد بناءها</span>${H_BUILD.map(([k, n]) => `<label class="list-row" style="gap:10px"><input type="checkbox" name="hb" value="${k}" ${S.habits.some(h => h.key === k) ? 'disabled' : ''}><span class="grow">${esc(n)}</span></label>`).join('')}</div>
+    <div class="two"><label class="field"><span>عادة أخرى (اكتب اسمها)</span><input class="input" name="cname" dir="auto"></label><label class="field"><span>النوع</span><select class="input" name="ckind"><option value="quit">أريد تركها</option><option value="build">أريد بناءها</option></select></label></div>
+    <button class="btn pri block" style="margin-top:10px">إضافة</button></form>`),
+  editHabit: d => { const h = habitOf(d.id); sheet('إدارة العادة', `<form data-f="saveHabit" data-id="${h.id}"><label class="field"><span>الاسم</span><input class="input" name="name" value="${esc(h.name)}" required dir="auto"></label><button class="btn pri block">حفظ</button><button type="button" class="btn bad block" style="margin-top:8px" data-a="delHabit" data-id="${h.id}">حذف العادة وسجلّها</button></form>`); },
+  delHabit: async d => { if (!(await ask('حذف هذه العادة وسجلّها؟', 'حذف'))) return; S.habits = S.habits.filter(h => h.id !== d.id); R.hab = null; save(); closeSheet(true); render(); },
   urgeStep: d => { R.urge.steps[d.i] = !R.urge.steps[d.i]; render(); },
   urgeAnswer: () => { const v = normDigits($('#urgeAns').value).trim(), ok = R.urge.ex.a.includes(v); $('#urgeFb').innerHTML = ok ? `<span class="ok-tx">صحيح! ذهنك معك</span>` : `<span class="bad-tx">حاول مرة أخرى${R.urge.ex.h ? ' · ' + esc(R.urge.ex.h) : ''}</span>`; if (ok) { R.urge.ex = randomNumEx(); R.urge.steps[4] = true; setTimeout(render, 900); } },
   urgeDone: d => {
     const reason = $('input[name=ur]:checked')?.value || 'غير محدد', t = logicalToday();
-    S.quit.urges.push({ date: t, time: fromMin(nowMin()), reason, ok: d.ok === '1', mins: Math.round((Date.now() - R.urge.start) / 60000) });
-    save(); R.urge = null;
-    if (d.ok === '1') { back(); toast('أحسنت! تجاوزت موجة كاملة', 'ok'); confetti(); } else { back(); A.relapse({ reason }); }
+    const hb = habitOf(R.urge.hab); hb.urges.push({ date: t, time: fromMin(nowMin()), reason, ok: d.ok === '1', mins: Math.round((Date.now() - R.urge.start) / 60000) });
+    const hid = R.urge.hab; save(); R.urge = null;
+    if (d.ok === '1') { back(); toast('أحسنت! تجاوزت موجة كاملة', 'ok'); confetti(); } else { back(); A.relapse({ reason, id: hid }); }
   },
-  relapse: d => sheet('تسجيل انتكاسة', `<form data-f="saveRelapse"><p class="muted" style="margin-top:0">لا لوم. الانتكاس معلومة تساعدنا على تعديل الخطة.</p><div class="field"><span>السبب</span>${chipsHtml('reason', ['ملل', 'وحدة', 'تعب', 'توتر', 'ليل وسرير', 'الهاتف', 'أخرى'].map(x => [x, x]), d?.reason || '')}</div><label class="field"><span>ما الذي سأغيّره؟</span><input class="input" name="note" placeholder="مثلاً: الشاحن خارج الغرفة"></label><button class="btn pri block">حفظ وابدأ من جديد</button></form>`),
+  relapse: d => sheet('تسجيل انتكاسة', `<form data-f="saveRelapse" data-id="${d?.id || R.hab}"><p class="muted" style="margin-top:0">لا لوم. الانتكاس معلومة تساعدنا على تعديل الخطة.</p><div class="field"><span>السبب</span>${chipsHtml('reason', (H_REASONS[habitOf(d?.id || R.hab)?.key] || ['ملل', 'وحدة', 'تعب', 'توتر', 'الهاتف', 'أخرى']).map(x => [x, x]), d?.reason || '')}</div><label class="field"><span>ما الذي سأغيّره؟</span><input class="input" name="note" placeholder="مثلاً: الشاحن خارج الغرفة"></label><button class="btn pri block">حفظ وابدأ من جديد</button></form>`),
   // عام
   goLibrary: () => go('library'), goStats: () => go('stats'), goSettings: () => go('settings'),
   logout: async () => { if (await ask('تسجيل الخروج؟ ستحتاج كلمة السر للدخول.', 'خروج')) logout(); },
@@ -1326,10 +1378,15 @@ const F = {
   saveLink: (fd, f) => { let url = fd.get('url').trim(); if (!/^https?:\/\//i.test(url)) return toast('الرابط يجب أن يبدأ بـ https://', 'bad'); ownerOf(f.dataset.k, f.dataset.o).refs.push({ id: uid(), type: 'link', title: fd.get('title').trim(), url, video: !!fd.get('video') }); save(); closeSheet(); render(); },
   saveSleep: fd => { const t = logicalToday(); S.health.sleep[t] = { bed: fd.get('bed'), wake: fd.get('wake'), q: +fd.get('q') || 3 }; save(); render(); const h = durMin(fd.get('bed'), fd.get('wake')) / 60; toast(h >= 7 ? `نمت ${h.toFixed(1)} ساعة، ممتاز` : `نمت ${h.toFixed(1)} ساعة. حاول النوم أبكر الليلة`, h >= 7 ? 'ok' : ''); },
   saveSet: (fd, f) => { const n = parseInt(normDigits(fd.get('n'))); if (!(n >= 0)) return toast('اكتب رقماً'); const t = logicalToday(), ses = S.health.sessions[t] ||= { sets: {} }, arr = ses.sets[f.dataset.id] ||= []; arr[+f.dataset.i] = n; for (let i = 0; i < arr.length; i++) if (arr[i] === undefined) arr[i] = null; save(); closeSheet(); R.rest = { end: Date.now() + EXERCISES[f.dataset.id].rest * 1000 }; render(); },
-  saveRelapse: fd => { const reason = fd.get('reason') || 'غير محدد'; S.quit.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
+  saveHabits: fd => { const t = logicalToday(), add = (key, name, kind) => { const h = { id: uid(), key, name, kind, start: t, relapses: [], urges: [], checks: {} }; S.habits.push(h); return h; }; let last = null;
+    fd.getAll('hq').forEach(k => last = add(k, H_QUIT.find(x => x[0] === k)[1], 'quit')); fd.getAll('hb').forEach(k => last = add(k, H_BUILD.find(x => x[0] === k)[1], 'build'));
+    const cn = (fd.get('cname') || '').trim(); if (cn) last = add('custom', cn, fd.get('ckind') === 'build' ? 'build' : 'quit');
+    if (!last) return toast('اختر عادة أو اكتب اسمها'); R.hab = last.id; save(); closeSheet(true); render(); },
+  saveHabit: (fd, f) => { const h = habitOf(f.dataset.id); h.name = fd.get('name').trim() || h.name; save(); closeSheet(true); render(); },
+  saveRelapse: (fd, f) => { const reason = fd.get('reason') || 'غير محدد', h = habitOf(f.dataset.id); h.relapses.push({ date: logicalToday(), reason, note: fd.get('note').trim() }); Object.keys(S.cele).filter(k => k.startsWith('q:' + h.id + ':')).forEach(k => delete S.cele[k]); save(); closeSheet(); render(); toast('سُجّل. يوم جديد يبدأ الآن، وأنت أقوى بما عرفته'); },
   savePw: async fd => { if (fd.get('n1') !== fd.get('n2')) { $('#pwErr').textContent = 'كلمتا السر غير متطابقتين'; return; } try { await changePw(fd.get('old'), fd.get('n1'), fd.get('phone')); closeSheet(); toast('تغيّرت كلمة السر', 'ok'); } catch (e) { $('#pwErr').textContent = e.message; } },
   saveEnableSync: async fd => { const b = $('.sheet button.pri'); b.disabled = true; try { await enableSync(fd.get('pw'), fd.get('phone'), fd.get('code').trim()); closeSheet(); toast(R.sync?.state === 'ok' ? 'فُعّلت المزامنة' : 'فُعّلت، وستُرفع عند الاتصال', 'ok'); render(); } catch (e) { $('#esErr').textContent = e.message; b.disabled = false; } },
-  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.autoFrom = +fd.get('autoFrom') || 420; S.settings.autoTo = +fd.get('autoTo') || 1320; S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; S.profile.quit = !!fd.get('quit'); S.profile.quitSet = 1; const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
+  saveSettings: fd => { S.profile.name = fd.get('name').trim(); S.settings.appName = fd.get('appName').trim() || 'MASAR'; S.settings.theme = fd.get('theme') || 'auto'; S.settings.currency = fd.get('currency').trim() || 'أوقية'; S.settings.dayStart = +fd.get('dayStart'); S.settings.maxAuto = +fd.get('maxAuto'); S.settings.autoFrom = +fd.get('autoFrom') || 420; S.settings.autoTo = +fd.get('autoTo') || 1320; S.settings.reviewTime = fd.get('reviewTime') || '21:30'; delete S.plan[logicalToday()]; S.settings.habitLock = !!fd.get('hlock'); const acc = accounts(); if (acc[ACC]) { acc[ACC].name = S.profile.name; setAccounts(acc); } applyTheme(); save(); render(); toast('حُفظت الإعدادات', 'ok'); }
 };
 const C = {
   pickFile: el => { const file = el.files[0]; el.value = ''; if (!file) return; R.pendingFile = { file, k: el.dataset.k, o: el.dataset.o }; sheet('إضافة ملف', `<div class="list-row">${ic('file')}<span class="grow"><b>${esc(file.name)}</b><br><small class="muted">${fmtSize(file.size)}</small></span></div><div class="note">سيُحفظ داخل التطبيق ويأخذ ${fmtSize(file.size)} من مساحة هاتفك، ويعمل دون إنترنت.</div><button class="btn pri block" style="margin-top:12px" data-a="confirmFile">أضف الملف</button>`); },
@@ -1395,7 +1452,6 @@ setInterval(() => {
 
 // ================= Face ID =================
 async function unlockHabits() {
-  if (!quitOn()) return false;
   if (habitsOpen()) return true;
   const a = accounts()[ACC];
   try {
